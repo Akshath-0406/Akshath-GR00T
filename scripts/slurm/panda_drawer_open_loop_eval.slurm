@@ -11,7 +11,11 @@
 
 # Open-loop evaluation of a panda_drawer NEW_EMBODIMENT checkpoint.
 #
-# Before first use: mkdir -p logs
+# Before first use:
+#   1. bash scripts/slurm/prefetch_panda_drawer.sh   (run on the LOGIN node,
+#      if not already done for the fine-tune job -- makes sure the dataset
+#      is present so this job never touches the network)
+#   2. mkdir -p logs
 #
 # Usage:
 #   sbatch --export=ALL,CHECKPOINT=outputs/panda_drawer/checkpoint-2000 \

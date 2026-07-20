@@ -12,8 +12,11 @@
 # bwUniCluster3.0 fine-tuning job for the panda_drawer NEW_EMBODIMENT setup.
 #
 # Before first use:
-#   mkdir -p logs   (SLURM needs this to exist before the job starts, since
-#                     --output/--error are opened before this script runs)
+#   1. bash scripts/slurm/prefetch_panda_drawer.sh   (run on the LOGIN node --
+#      downloads the base model + dataset so this job never touches the
+#      network; compute nodes are not expected to have internet access)
+#   2. mkdir -p logs   (SLURM needs this to exist before the job starts, since
+#                        --output/--error are opened before this script runs)
 #
 # Smoke test before committing to the full run (matches MolmoAct2's own
 # smoke-test-first practice) -- override partition/time/steps at submit time:
