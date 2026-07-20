@@ -18,13 +18,18 @@
 #   2. mkdir -p logs
 #
 # Usage:
-#   sbatch --export=ALL,CHECKPOINT=outputs/panda_drawer/checkpoint-2000 \
+#   sbatch --export=CHECKPOINT=outputs/panda_drawer/checkpoint-2000 \
 #       scripts/slurm/panda_drawer_open_loop_eval.slurm
 
 set -euo pipefail
 
+# Non-interactive batch shells don't source ~/.bashrc, so `uv` needs to be put
+# on PATH explicitly here rather than relying on --export=ALL to propagate it
+# from the submitting session.
+export PATH="$HOME/.local/bin:$PATH"
+
 if [ -z "${CHECKPOINT:-}" ]; then
-    echo "Set CHECKPOINT (relative to \$HOME/groot) via --export=ALL,CHECKPOINT=..." >&2
+    echo "Set CHECKPOINT (relative to \$HOME/groot) via --export=CHECKPOINT=..." >&2
     exit 1
 fi
 

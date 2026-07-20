@@ -21,13 +21,18 @@
 # Smoke test before committing to the full run (matches MolmoAct2's own
 # smoke-test-first practice) -- override partition/time/steps at submit time:
 #   sbatch --partition=gpu_h100_short --time=00:30:00 \
-#       --export=ALL,MAX_STEPS=10,SAVE_STEPS=10 \
+#       --export=MAX_STEPS=10,SAVE_STEPS=10 \
 #       scripts/slurm/panda_drawer_finetune.slurm
 #
 # Full run:
 #   sbatch scripts/slurm/panda_drawer_finetune.slurm
 
 set -euo pipefail
+
+# Non-interactive batch shells don't source ~/.bashrc, so `uv` needs to be put
+# on PATH explicitly here rather than relying on --export=ALL to propagate it
+# from the submitting session.
+export PATH="$HOME/.local/bin:$PATH"
 
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
