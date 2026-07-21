@@ -29,11 +29,6 @@
 
 set -euo pipefail
 
-# Non-interactive batch shells don't source ~/.bashrc, so `uv` needs to be put
-# on PATH explicitly here rather than relying on --export=ALL to propagate it
-# from the submitting session.
-export PATH="$HOME/.local/bin:$PATH"
-
 # torchcodec (GR00T's video decoder) needs FFmpeg 4-7's shared libraries at
 # runtime, which bwUniCluster3.0 doesn't provide as a module or system
 # package. scripts/slurm/prefetch_panda_drawer.sh creates a conda-forge env
@@ -45,14 +40,22 @@ MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
 
-module load devel/cuda/12.8
-
 cd "$HOME/groot"
 source .venv/bin/activate
 
+# Diagnostics -- mirrors the pattern the panda_drawer MolmoAct2 scripts use
+# (experiments/slurm/panda_smoke.slurm etc.), which have run cleanly on
+# gpu_h100_short for multi-day stretches. Cheap, and gives us something to
+# compare against if a job dies or gets held before reaching training.
+echo "Host: $(hostname)"
+echo "Python: $(which python)"
+python --version
+nvidia-smi
+python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE')"
+
 mkdir -p "$HOME/groot/outputs"
 
-CUDA_VISIBLE_DEVICES=0 uv run python gr00t/experiment/launch_finetune.py \
+CUDA_VISIBLE_DEVICES=0 python gr00t/experiment/launch_finetune.py \
     --base-model-path nvidia/GR00T-N1.7-3B \
     --dataset-path examples/panda_drawer/panda_drawer_many_ee_fullres \
     --embodiment-tag NEW_EMBODIMENT \

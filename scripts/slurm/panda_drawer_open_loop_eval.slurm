@@ -23,11 +23,6 @@
 
 set -euo pipefail
 
-# Non-interactive batch shells don't source ~/.bashrc, so `uv` needs to be put
-# on PATH explicitly here rather than relying on --export=ALL to propagate it
-# from the submitting session.
-export PATH="$HOME/.local/bin:$PATH"
-
 # torchcodec (GR00T's video decoder) needs FFmpeg 4-7's shared libraries at
 # runtime; see scripts/slurm/prefetch_panda_drawer.sh for how the ffmpeg-libs
 # conda env gets created.
@@ -41,12 +36,15 @@ fi
 TRAJ_IDS="${TRAJ_IDS:-0}"
 EXECUTION_HORIZON="${EXECUTION_HORIZON:-16}"
 
-module load devel/cuda/12.8
-
 cd "$HOME/groot"
 source .venv/bin/activate
 
-uv run python gr00t/eval/open_loop_eval.py \
+echo "Host: $(hostname)"
+echo "Python: $(which python)"
+python --version
+nvidia-smi
+
+python gr00t/eval/open_loop_eval.py \
     --dataset-path examples/panda_drawer/panda_drawer_many_ee_fullres \
     --embodiment-tag NEW_EMBODIMENT \
     --model-path "$HOME/groot/$CHECKPOINT" \
