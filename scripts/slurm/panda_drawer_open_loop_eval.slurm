@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=groot-panda-drawer-eval
 #SBATCH --account=ka
-#SBATCH --partition=gpu_h100_short
+#SBATCH --partition=gpu_a100_il
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
