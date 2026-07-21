@@ -18,38 +18,46 @@
 #   2. mkdir -p logs   (SLURM needs this to exist before the job starts, since
 #                        --output/--error are opened before this script runs)
 #
+# NOTE ON PARTITIONS: avoid gpu_h100_short and gpu_h100 entirely. They share
+# the exact same physical node pool (uc3n[071-081,103]), and every single
+# "user env retrieval failed requeued held" hold across this whole project
+# happened on that pool -- never once on the Ice Lake pool (gpu_a100_il /
+# gpu_h100_il, same physical nodes, different GPU populated per node).
+# Excluding just gpu_h100_short doesn't help if gpu_h100 is still in the
+# list -- it's the identical hardware.
+#
 # Smoke test before committing to the full run (matches MolmoAct2's own
-# smoke-test-first practice) -- runs on whichever of gpu_h100_short,
-# gpu_a100_il, gpu_a100_short, gpu_h100, gpu_h100_il frees up first (fine to
-# include gpu_a100_short here -- light workload, already confirmed to load
-# and run there; --time must fit the smallest MaxTime among them, 30min):
-#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100,gpu_h100_il \
+# smoke-test-first practice) -- runs on whichever of gpu_a100_il,
+# gpu_a100_short, gpu_h100_il frees up first (fine to include gpu_a100_short
+# here -- light workload, already confirmed to load and run there; --time
+# must fit the smallest MaxTime among them, 30min):
+#   sbatch --partition=gpu_a100_il,gpu_a100_short,gpu_h100_il \
 #       --time=00:30:00 \
 #       --export=MAX_STEPS=10,SAVE_STEPS=10 \
 #       scripts/slurm/panda_drawer_finetune.slurm
 #
 # Full run (single uninterrupted job, no chaining -- needs a partition with a
-# long enough MaxTime, e.g. gpu_h100 alone):
-#   sbatch scripts/slurm/panda_drawer_finetune.slurm
+# long enough MaxTime, e.g. gpu_a100_il alone, 48h):
+#   sbatch --partition=gpu_a100_il --time=48:00:00 scripts/slurm/panda_drawer_finetune.slurm
 #
-# Chained short-leg run (gpu_h100_short caps at ~30min wall-clock; this
-# self-resubmits every leg via `sbatch --dependency=afterany` until MAX_STEPS
-# is reached, matching MolmoAct2's panda_full_1epoch.slurm pattern -- each leg
-# is submitted against CHAIN_PARTITIONS, so it starts on whichever partition
-# frees up first). CHAIN_PARTITIONS deliberately excludes gpu_a100_short (its
-# 40GB A100s aren't confirmed safe for global_batch_size=32 -- see comment
-# below). TRAIN_TIMEOUT_SECONDS must leave enough headroom under the SLURM
-# --time for this script to reclaim control, scan checkpoints, and resubmit
-# before the hard kill:
-#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_h100,gpu_h100_il \
+# Chained short-leg run (self-resubmits every leg via
+# `sbatch --dependency=afterany` until MAX_STEPS is reached, matching
+# MolmoAct2's panda_full_1epoch.slurm pattern -- each leg is submitted
+# against CHAIN_PARTITIONS, so it starts on whichever partition frees up
+# first). CHAIN_PARTITIONS deliberately excludes gpu_a100_short too (its 40GB
+# A100s aren't confirmed safe for global_batch_size=32 -- see comment below).
+# TRAIN_TIMEOUT_SECONDS must leave enough headroom under the SLURM --time for
+# this script to reclaim control, scan checkpoints, and resubmit before the
+# hard kill:
+#   sbatch --partition=gpu_a100_il,gpu_h100_il \
 #       --time=00:28:00 \
 #       --export=MAX_STEPS=2000,SAVE_STEPS=20,TRAIN_TIMEOUT_SECONDS=1500 \
 #       scripts/slurm/panda_drawer_finetune.slurm
 #
-# To test whether multiprocessing dataloader workers are a factor in the
-# "user env retrieval failed" holds (MolmoAct2's known-good scripts always
-# use --num_workers=0; ours defaults to 4), add:
-#       --export=...,DATALOADER_NUM_WORKERS=0
+# DATALOADER_NUM_WORKERS=0 was tested as a factor in the "user env retrieval
+# failed" holds (MolmoAct2's known-good scripts always use --num_workers=0;
+# ours defaults to 4) and did NOT change anything -- the holds happened with
+# workers=0 too. Ruled out; the node pool above is the real factor.
 
 set -euo pipefail
 
@@ -74,15 +82,20 @@ DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 # short legs on gpu_h100_short instead.
 TRAIN_TIMEOUT_SECONDS="${TRAIN_TIMEOUT_SECONDS:-71000}"
 # Partitions the self-resubmitted chain legs are eligible for -- SLURM starts
-# the job on whichever of these frees up first. All must accept --time=00:28:00
-# (gpu_h100_short caps at 30min, so this is the binding limit).
-# Deliberately excludes gpu_a100_short: its A100s are the 40GB Cascade Lake
-# variant, vs 80-94GB on all four of these -- global_batch_size=32 at bf16 is
-# only confirmed safe on the larger-memory nodes, and a real fine-tune run
-# OOM-crashing partway through a chain leg is worse than a slower queue wait.
-# Fine to include gpu_a100_short for smoke tests/eval (lighter, already
-# confirmed to load and run there) -- just not for the real chained run.
-CHAIN_PARTITIONS="${CHAIN_PARTITIONS:-gpu_h100_short,gpu_a100_il,gpu_h100,gpu_h100_il}"
+# the job on whichever of these frees up first.
+# Deliberately excludes gpu_h100_short AND gpu_h100: they share the exact same
+# physical node pool (uc3n[071-081,103]) and every "user env retrieval failed
+# requeued held" hold across this entire project happened on that pool --
+# never once on the Ice Lake pool (gpu_a100_il/gpu_h100_il, same nodes,
+# different GPU populated per node). This isn't just gpu_h100_short being
+# flaky; gpu_h100 is the identical hardware, so keeping it in the list
+# wouldn't avoid anything.
+# Also excludes gpu_a100_short (different reason): its A100s are the 40GB
+# Cascade Lake variant vs 80GB on the two Ice Lake partitions --
+# global_batch_size=32 at bf16 is only confirmed safe on the larger-memory
+# nodes. Fine for smoke tests/eval (lighter, already confirmed to run there),
+# just not for the real chained run.
+CHAIN_PARTITIONS="${CHAIN_PARTITIONS:-gpu_a100_il,gpu_h100_il}"
 
 
 # Needed for CUDA_HOME: accelerate's unwrap_model() unconditionally imports
