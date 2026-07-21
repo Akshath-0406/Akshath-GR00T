@@ -880,6 +880,15 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "max_action_horizon",
                 "max_state_dim",
                 "max_action_dim",
+                # Without this, fine-tuning from a pretrained checkpoint (the
+                # normal case -- start_from_checkpoint is set) silently keeps
+                # whatever letter_box_transform the base checkpoint was saved
+                # with, ignoring any override passed here. That left mixed-
+                # aspect-ratio camera setups (e.g. panda_drawer) crashing at
+                # single-observation inference even with --letter-box-transform
+                # passed at the CLI, since the override never actually reached
+                # the constructed processor.
+                "letter_box_transform",
             ]
             for key in override_keys:
                 if key in kwargs:
