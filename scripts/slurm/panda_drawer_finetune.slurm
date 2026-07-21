@@ -36,6 +36,11 @@
 #   sbatch --partition=gpu_h100_short --time=00:28:00 \
 #       --export=MAX_STEPS=2000,SAVE_STEPS=20,TRAIN_TIMEOUT_SECONDS=1500 \
 #       scripts/slurm/panda_drawer_finetune.slurm
+#
+# To test whether multiprocessing dataloader workers are a factor in the
+# "user env retrieval failed" holds (MolmoAct2's known-good scripts always
+# use --num_workers=0; ours defaults to 4), add:
+#       --export=...,DATALOADER_NUM_WORKERS=0
 
 set -euo pipefail
 
@@ -49,6 +54,11 @@ export LD_LIBRARY_PATH="$HOME/.conda/envs/ffmpeg-libs/lib:${LD_LIBRARY_PATH:-}"
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
+# MolmoAct2's known-good scripts always use --num_workers=0 (no multiprocessing
+# dataloader workers); ours defaults to >0 (spawns persistent worker
+# subprocesses -- see gr00t/experiment/trainer.py). Override to 0 to test
+# whether that's a factor in the "user env retrieval failed" holds.
+DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 # Default is ~19.7h, safely under this file's own 20h #SBATCH --time so a
 # plain `sbatch panda_drawer_finetune.slurm` behaves as one uninterrupted
 # run. Override lower (e.g. 1500) together with --time/--partition to chain
@@ -98,7 +108,7 @@ CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/
     --save-steps "$SAVE_STEPS" \
     --save-total-limit 5 \
     --global-batch-size "$GLOBAL_BATCH_SIZE" \
-    --dataloader-num-workers 4 \
+    --dataloader-num-workers "$DATALOADER_NUM_WORKERS" \
     "${RESUME_ARGS[@]}"
 train_exit=$?
 set -e
@@ -123,7 +133,7 @@ echo "Latest completed checkpoint: checkpoint-${latest_step} (target: ${MAX_STEP
 if (( latest_step < MAX_STEPS )); then
     echo "Target not yet reached; chaining next leg on gpu_h100_short."
     next_job_output="$(sbatch --partition=gpu_h100_short --time=00:28:00 \
-        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" \
+        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" \
         --dependency=afterany:"$SLURM_JOB_ID" \
         "$SLURM_SCRIPT")"
     echo "$next_job_output"
