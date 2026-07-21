@@ -20,9 +20,10 @@
 #
 # Smoke test before committing to the full run (matches MolmoAct2's own
 # smoke-test-first practice) -- runs on whichever of gpu_h100_short,
-# gpu_a100_il, gpu_a100_short, gpu_h100 frees up first (see CHAIN_PARTITIONS
-# below; --time must fit the smallest MaxTime among them, 30min):
-#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100 \
+# gpu_a100_il, gpu_a100_short, gpu_h100, gpu_h100_il frees up first (fine to
+# include gpu_a100_short here -- light workload, already confirmed to load
+# and run there; --time must fit the smallest MaxTime among them, 30min):
+#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100,gpu_h100_il \
 #       --time=00:30:00 \
 #       --export=MAX_STEPS=10,SAVE_STEPS=10 \
 #       scripts/slurm/panda_drawer_finetune.slurm
@@ -31,15 +32,16 @@
 # long enough MaxTime, e.g. gpu_h100 alone):
 #   sbatch scripts/slurm/panda_drawer_finetune.slurm
 #
-# Chained short-leg run (gpu_h100_short/gpu_a100_short cap at ~30min
-# wall-clock; this self-resubmits every leg via `sbatch --dependency=afterany`
-# until MAX_STEPS is reached, matching MolmoAct2's panda_full_1epoch.slurm
-# pattern -- each leg is submitted against CHAIN_PARTITIONS, so it starts on
-# whichever of the 4 partitions frees up first, not just gpu_h100_short).
-# TRAIN_TIMEOUT_SECONDS must leave enough headroom under the SLURM --time for
-# this script to reclaim control, scan checkpoints, and resubmit before the
-# hard kill:
-#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100 \
+# Chained short-leg run (gpu_h100_short caps at ~30min wall-clock; this
+# self-resubmits every leg via `sbatch --dependency=afterany` until MAX_STEPS
+# is reached, matching MolmoAct2's panda_full_1epoch.slurm pattern -- each leg
+# is submitted against CHAIN_PARTITIONS, so it starts on whichever partition
+# frees up first). CHAIN_PARTITIONS deliberately excludes gpu_a100_short (its
+# 40GB A100s aren't confirmed safe for global_batch_size=32 -- see comment
+# below). TRAIN_TIMEOUT_SECONDS must leave enough headroom under the SLURM
+# --time for this script to reclaim control, scan checkpoints, and resubmit
+# before the hard kill:
+#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_h100,gpu_h100_il \
 #       --time=00:28:00 \
 #       --export=MAX_STEPS=2000,SAVE_STEPS=20,TRAIN_TIMEOUT_SECONDS=1500 \
 #       scripts/slurm/panda_drawer_finetune.slurm
@@ -73,8 +75,14 @@ DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 TRAIN_TIMEOUT_SECONDS="${TRAIN_TIMEOUT_SECONDS:-71000}"
 # Partitions the self-resubmitted chain legs are eligible for -- SLURM starts
 # the job on whichever of these frees up first. All must accept --time=00:28:00
-# (gpu_h100_short/gpu_a100_short cap at 30min, so this is the binding limit).
-CHAIN_PARTITIONS="${CHAIN_PARTITIONS:-gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100}"
+# (gpu_h100_short caps at 30min, so this is the binding limit).
+# Deliberately excludes gpu_a100_short: its A100s are the 40GB Cascade Lake
+# variant, vs 80-94GB on all four of these -- global_batch_size=32 at bf16 is
+# only confirmed safe on the larger-memory nodes, and a real fine-tune run
+# OOM-crashing partway through a chain leg is worse than a slower queue wait.
+# Fine to include gpu_a100_short for smoke tests/eval (lighter, already
+# confirmed to load and run there) -- just not for the real chained run.
+CHAIN_PARTITIONS="${CHAIN_PARTITIONS:-gpu_h100_short,gpu_a100_il,gpu_h100,gpu_h100_il}"
 
 
 # Needed for CUDA_HOME: accelerate's unwrap_model() unconditionally imports
