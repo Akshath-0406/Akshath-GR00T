@@ -19,21 +19,28 @@
 #                        --output/--error are opened before this script runs)
 #
 # Smoke test before committing to the full run (matches MolmoAct2's own
-# smoke-test-first practice) -- override partition/time/steps at submit time:
-#   sbatch --partition=gpu_h100_short --time=00:30:00 \
+# smoke-test-first practice) -- runs on whichever of gpu_h100_short,
+# gpu_a100_il, gpu_a100_short, gpu_h100 frees up first (see CHAIN_PARTITIONS
+# below; --time must fit the smallest MaxTime among them, 30min):
+#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100 \
+#       --time=00:30:00 \
 #       --export=MAX_STEPS=10,SAVE_STEPS=10 \
 #       scripts/slurm/panda_drawer_finetune.slurm
 #
-# Full run:
+# Full run (single uninterrupted job, no chaining -- needs a partition with a
+# long enough MaxTime, e.g. gpu_h100 alone):
 #   sbatch scripts/slurm/panda_drawer_finetune.slurm
 #
-# Chained short-partition run (gpu_h100_short has a hard ~30min wall-clock
-# limit; this self-resubmits every leg via `sbatch --dependency=afterany`
+# Chained short-leg run (gpu_h100_short/gpu_a100_short cap at ~30min
+# wall-clock; this self-resubmits every leg via `sbatch --dependency=afterany`
 # until MAX_STEPS is reached, matching MolmoAct2's panda_full_1epoch.slurm
-# pattern). TRAIN_TIMEOUT_SECONDS must leave enough headroom under the
-# SLURM --time for this script to reclaim control, scan checkpoints, and
-# resubmit before the hard kill:
-#   sbatch --partition=gpu_h100_short --time=00:28:00 \
+# pattern -- each leg is submitted against CHAIN_PARTITIONS, so it starts on
+# whichever of the 4 partitions frees up first, not just gpu_h100_short).
+# TRAIN_TIMEOUT_SECONDS must leave enough headroom under the SLURM --time for
+# this script to reclaim control, scan checkpoints, and resubmit before the
+# hard kill:
+#   sbatch --partition=gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100 \
+#       --time=00:28:00 \
 #       --export=MAX_STEPS=2000,SAVE_STEPS=20,TRAIN_TIMEOUT_SECONDS=1500 \
 #       scripts/slurm/panda_drawer_finetune.slurm
 #
@@ -64,6 +71,10 @@ DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 # run. Override lower (e.g. 1500) together with --time/--partition to chain
 # short legs on gpu_h100_short instead.
 TRAIN_TIMEOUT_SECONDS="${TRAIN_TIMEOUT_SECONDS:-71000}"
+# Partitions the self-resubmitted chain legs are eligible for -- SLURM starts
+# the job on whichever of these frees up first. All must accept --time=00:28:00
+# (gpu_h100_short/gpu_a100_short cap at 30min, so this is the binding limit).
+CHAIN_PARTITIONS="${CHAIN_PARTITIONS:-gpu_h100_short,gpu_a100_il,gpu_a100_short,gpu_h100}"
 
 
 # Needed for CUDA_HOME: accelerate's unwrap_model() unconditionally imports
@@ -146,9 +157,9 @@ done
 echo "Latest completed checkpoint: checkpoint-${latest_step} (target: ${MAX_STEPS})"
 
 if (( latest_step < MAX_STEPS )); then
-    echo "Target not yet reached; chaining next leg on gpu_h100_short."
-    next_job_output="$(sbatch --partition=gpu_h100_short --time=00:28:00 \
-        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" \
+    echo "Target not yet reached; chaining next leg on whichever of $CHAIN_PARTITIONS frees up first."
+    next_job_output="$(sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
+        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS",CHAIN_PARTITIONS="$CHAIN_PARTITIONS" \
         --dependency=afterany:"$SLURM_JOB_ID" \
         "$SLURM_SCRIPT")"
     echo "$next_job_output"
