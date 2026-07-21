@@ -97,12 +97,18 @@ fi
 # --time, so the chaining logic below actually gets to run (GR00T has no
 # built-in wall-clock stopping criterion the way MolmoAct2's trainer does).
 set +e
+# --letter-box-transform is required: panda_drawer's three cameras don't share
+# one aspect ratio (gripper_cam 4:3 vs left_cam/right_cam 16:9), which crashes
+# single-observation inference (torch.stack shape mismatch across views)
+# without it. Must match between train and eval -- it's saved into the
+# checkpoint's processor_config.json and restored automatically at eval time.
 CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/launch_finetune.py \
     --base-model-path nvidia/GR00T-N1.7-3B \
     --dataset-path examples/panda_drawer/panda_drawer_many_ee_fullres \
     --embodiment-tag NEW_EMBODIMENT \
     --modality-config-path examples/panda_drawer/panda_drawer_config.py \
     --num-gpus 1 \
+    --letter-box-transform \
     --output-dir "$OUTPUT_DIR" \
     --max-steps "$MAX_STEPS" \
     --save-steps "$SAVE_STEPS" \

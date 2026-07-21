@@ -101,6 +101,17 @@ class FinetuneConfig:
     preprocessing is disabled.
     """
 
+    letter_box_transform: bool = False
+    """
+    If True, pad each camera view to square before resizing/cropping, so views with
+    different native aspect ratios end up the same final shape. Required whenever an
+    embodiment's cameras don't all share one aspect ratio -- otherwise stacking views
+    at single-observation inference time (Gr00tN1d7Processor._get_vlm_inputs) raises
+    a torch.stack shape-mismatch error (upstream issue #541). Only affects preprocessing,
+    not the model architecture, but train/eval must agree: it's saved into the
+    checkpoint's processor_config.json and restored automatically at inference time.
+    """
+
     extra_augmentation_config: str | None = None
     """
     JSON string for extra image augmentations (mask-based and others).
