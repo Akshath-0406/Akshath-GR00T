@@ -34,6 +34,13 @@ set -euo pipefail
 # from the submitting session.
 export PATH="$HOME/.local/bin:$PATH"
 
+# torchcodec (GR00T's video decoder) needs FFmpeg 4-7's shared libraries at
+# runtime, which bwUniCluster3.0 doesn't provide as a module or system
+# package. scripts/slurm/prefetch_panda_drawer.sh creates a conda-forge env
+# containing a pinned ffmpeg<8 for exactly this purpose (not used for Python
+# at all, just to get loadable libs onto disk).
+export LD_LIBRARY_PATH="$HOME/.conda/envs/ffmpeg-libs/lib:${LD_LIBRARY_PATH:-}"
+
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-500}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"

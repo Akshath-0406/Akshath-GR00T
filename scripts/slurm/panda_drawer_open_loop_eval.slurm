@@ -28,6 +28,11 @@ set -euo pipefail
 # from the submitting session.
 export PATH="$HOME/.local/bin:$PATH"
 
+# torchcodec (GR00T's video decoder) needs FFmpeg 4-7's shared libraries at
+# runtime; see scripts/slurm/prefetch_panda_drawer.sh for how the ffmpeg-libs
+# conda env gets created.
+export LD_LIBRARY_PATH="$HOME/.conda/envs/ffmpeg-libs/lib:${LD_LIBRARY_PATH:-}"
+
 if [ -z "${CHECKPOINT:-}" ]; then
     echo "Set CHECKPOINT (relative to \$HOME/groot) via --export=CHECKPOINT=..." >&2
     exit 1

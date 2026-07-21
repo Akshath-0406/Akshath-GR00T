@@ -19,6 +19,17 @@ set -euo pipefail
 cd "$HOME/groot"
 source .venv/bin/activate
 
+echo "Checking for the ffmpeg-libs conda env (torchcodec, GR00T's video"
+echo "decoder, needs FFmpeg 4-7's shared libraries at runtime; bwUniCluster3.0"
+echo "provides no ffmpeg module or system package, so we pull a pinned build"
+echo "via conda-forge -- used only for its libs, not for Python)..."
+module load devel/miniforge
+if ! conda env list | grep -q '^ffmpeg-libs '; then
+    conda create -n ffmpeg-libs -c conda-forge 'ffmpeg<8' -y
+else
+    echo "ffmpeg-libs already exists, skipping."
+fi
+
 echo "Checking Hugging Face authentication..."
 uv run python -c "from huggingface_hub import whoami; print('Logged in as:', whoami()['name'])" || {
     echo "Not authenticated. Run 'uv run hf auth login' first." >&2
