@@ -65,6 +65,15 @@ DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 # short legs on gpu_h100_short instead.
 TRAIN_TIMEOUT_SECONDS="${TRAIN_TIMEOUT_SECONDS:-71000}"
 
+
+# Needed for CUDA_HOME: accelerate's unwrap_model() unconditionally imports
+# deepspeed (just to type-check the model, even though we're not using it --
+# single GPU, no deepspeed backend), and deepspeed's own import-time CUDA
+# compatibility check hard-crashes with MissingCUDAException if CUDA_HOME
+# isn't set. Not needed for torch/flash-attn (their wheels bundle their own
+# CUDA runtime), but deepspeed's import path needs the real toolkit present.
+module load devel/cuda/12.8
+
 cd "$HOME/groot"
 source .venv/bin/activate
 
