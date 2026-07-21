@@ -71,9 +71,7 @@ def build_eef_pose(pos_col: pd.Series, quat_col: pd.Series) -> np.ndarray:
 
 
 def process_episode(df: pd.DataFrame) -> pd.DataFrame:
-    state_eef = build_eef_pose(
-        df["observation.proprio.ee_pos"], df["observation.proprio.ee_rot"]
-    )
+    state_eef = build_eef_pose(df["observation.proprio.ee_pos"], df["observation.proprio.ee_rot"])
     state_gripper = df["observation.proprio.gripper"].to_numpy(dtype=np.float32).reshape(-1, 1)
     state_joint = np.stack(df["observation.proprio.joint_pos"].to_numpy()).astype(np.float32)
     state = np.concatenate([state_eef, state_gripper, state_joint], axis=1)
