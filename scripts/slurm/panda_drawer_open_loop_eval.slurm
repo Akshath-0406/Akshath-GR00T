@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=groot-panda-drawer-eval
 #SBATCH --account=ka
-#SBATCH --partition=gpu_a100_il
+#SBATCH --partition=gpu_h100_short,gpu_h100,gpu_a100_il,gpu_h100_il,gpu_a100_short
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -10,6 +10,12 @@
 #SBATCH --error=logs/%x-%j.err
 
 # Open-loop evaluation of a panda_drawer NEW_EMBODIMENT checkpoint.
+#
+# Runs on whichever of all 5 GPU partitions frees up first (single forward
+# passes over a handful of trajectories -- light enough that even the 40GB
+# gpu_a100_short is fine here, unlike the real fine-tune's global_batch_size=32
+# which isn't confirmed safe there; see panda_drawer_finetune.slurm). Override
+# with `sbatch --partition=...` if you want to pin it to one partition.
 #
 # Before first use:
 #   1. bash scripts/slurm/prefetch_panda_drawer.sh   (run on the LOGIN node,
