@@ -123,6 +123,26 @@ OUTPUT_DIR="$HOME/groot/outputs/panda_drawer"
 SLURM_SCRIPT="$HOME/groot/scripts/slurm/panda_drawer_finetune.slurm"
 mkdir -p "$OUTPUT_DIR"
 
+# HF's get_last_checkpoint() (called by Gr00tTrainer.train() to resolve
+# resume_from_checkpoint=True) picks the highest-numbered checkpoint-N
+# directory purely by name -- it does not check whether the save actually
+# completed. If `timeout` below fires mid-save (a SAVE_STEPS checkpoint can
+# land right at the wall-clock deadline), the highest-numbered checkpoint can
+# be a truncated partial write (missing shards/index/trainer_state.json),
+# which crashes resume with FileNotFoundError instead of falling back to the
+# last good one. trainer_state.json is the last file HF's _save_checkpoint
+# writes, so its absence means that save never finished. Quarantine any such
+# checkpoint (rename so it no longer matches transformers' `^checkpoint-\d+$`
+# pattern) before resume detection runs, so get_last_checkpoint() and the
+# chaining step's own "latest_step" scan both skip it automatically.
+for ckpt in "$OUTPUT_DIR"/checkpoint-*; do
+    [[ -d "$ckpt" ]] || continue
+    if [[ ! -f "$ckpt/trainer_state.json" ]]; then
+        echo "Quarantining incomplete checkpoint (no trainer_state.json): $ckpt -> ${ckpt}.incomplete"
+        mv "$ckpt" "${ckpt}.incomplete"
+    fi
+done
+
 # Gr00tTrainer.train() hard-fails if resume_from_checkpoint=True and no
 # checkpoint-* exists yet (see gr00t/experiment/trainer.py) -- only resume
 # once a prior leg has actually saved one.
