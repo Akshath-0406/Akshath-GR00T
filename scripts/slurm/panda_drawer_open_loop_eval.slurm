@@ -9,7 +9,11 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
-# Open-loop evaluation of a panda_drawer NEW_EMBODIMENT checkpoint.
+# Open-loop evaluation of a GR00T NEW_EMBODIMENT checkpoint. Despite the
+# filename, this script is dataset-agnostic: DATASET_PATH and EMBODIMENT_TAG
+# are overridable via --export (defaulting to this repo's original
+# panda_drawer setup), same pattern as panda_drawer_finetune.slurm -- no
+# cloning needed for a new dataset.
 #
 # Runs on whichever of all 5 GPU partitions frees up first (single forward
 # passes over a handful of trajectories -- light enough that even the 40GB
@@ -18,9 +22,9 @@
 # with `sbatch --partition=...` if you want to pin it to one partition.
 #
 # Before first use:
-#   1. bash scripts/slurm/prefetch_panda_drawer.sh   (run on the LOGIN node,
-#      if not already done for the fine-tune job -- makes sure the dataset
-#      is present so this job never touches the network)
+#   1. run the new dataset's prefetch/prepare step on the LOGIN node (e.g.
+#      prefetch_panda_drawer.sh for the original dataset) -- makes sure it's
+#      present so this job never touches the network
 #   2. mkdir -p logs
 #
 # Usage (CHECKPOINT can be relative to $HOME/groot, or an absolute path --
@@ -29,6 +33,10 @@
 #   sbatch --export=CHECKPOINT=outputs/panda_drawer/checkpoint-2000 \
 #       scripts/slurm/panda_drawer_open_loop_eval.slurm
 #   sbatch --export=CHECKPOINT=$(ws_find groot_ckpts)/outputs/panda_drawer/checkpoint-2000 \
+#       scripts/slurm/panda_drawer_open_loop_eval.slurm
+# For a different dataset, also override DATASET_PATH (and EMBODIMENT_TAG if
+# it differs):
+#   sbatch --export=CHECKPOINT=$(ws_find groot_ckpts)/outputs/cup_stacking/checkpoint-2000,DATASET_PATH=examples/cup_stacking/cup_stacking_dataset \
 #       scripts/slurm/panda_drawer_open_loop_eval.slurm
 
 set -euo pipefail
@@ -45,6 +53,8 @@ fi
 
 TRAJ_IDS="${TRAJ_IDS:-0}"
 EXECUTION_HORIZON="${EXECUTION_HORIZON:-16}"
+DATASET_PATH="${DATASET_PATH:-examples/panda_drawer/panda_drawer_many_ee_fullres}"
+EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 
 # Accept CHECKPOINT as either absolute (workspace paths) or relative to
 # $HOME/groot (the old convention, kept for compatibility).
@@ -63,8 +73,8 @@ python --version
 nvidia-smi
 
 python gr00t/eval/open_loop_eval.py \
-    --dataset-path examples/panda_drawer/panda_drawer_many_ee_fullres \
-    --embodiment-tag NEW_EMBODIMENT \
+    --dataset-path "$DATASET_PATH" \
+    --embodiment-tag "$EMBODIMENT_TAG" \
     --model-path "$MODEL_PATH" \
     --traj-ids $TRAJ_IDS \
     --execution-horizon "$EXECUTION_HORIZON" \

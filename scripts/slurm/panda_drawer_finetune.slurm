@@ -9,7 +9,21 @@
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
 
-# bwUniCluster3.0 fine-tuning job for the panda_drawer NEW_EMBODIMENT setup.
+# bwUniCluster3.0 fine-tuning job. Despite the filename, this script is
+# dataset-agnostic: DATASET_PATH, MODALITY_CONFIG_PATH, EMBODIMENT_TAG, and
+# BASE_MODEL_PATH are all overridable via --export, defaulting to this repo's
+# original panda_drawer setup. For a new dataset, no cloning needed -- just
+# export different values for those four (and WS_SUBDIR, so it lands in its
+# own workspace subfolder instead of panda_drawer's). Example, smoke-testing a
+# hypothetical "cup_stacking" dataset starting from the panda_drawer checkpoint
+# (same embodiment -- see BASE_MODEL_PATH comment below for when that applies):
+#   sbatch --partition=gpu_a100_il,gpu_a100_short,gpu_h100_il,gpu_h100_short,gpu_h100 \
+#       --time=00:30:00 --job-name=groot-cup-stacking \
+#       --export=MAX_STEPS=10,SAVE_STEPS=10,WS_SUBDIR=cup_stacking,DATASET_PATH=examples/cup_stacking/cup_stacking_dataset,MODALITY_CONFIG_PATH=examples/cup_stacking/cup_stacking_config.py,BASE_MODEL_PATH=$(ws_find groot_ckpts)/outputs/panda_drawer/checkpoint-2000 \
+#       scripts/slurm/panda_drawer_finetune.slurm
+# (a new dataset still needs its own prefetch/prepare step first -- that
+# logic, e.g. prefetch_panda_drawer.sh, is inherently dataset-specific and
+# isn't made generic here.)
 #
 # Before first use:
 #   1. bash scripts/slurm/prefetch_panda_drawer.sh   (run on the LOGIN node --
@@ -88,6 +102,23 @@ set -euo pipefail
 # containing a pinned ffmpeg<8 for exactly this purpose (not used for Python
 # at all, just to get loadable libs onto disk).
 export LD_LIBRARY_PATH="$HOME/.conda/envs/ffmpeg-libs/lib:${LD_LIBRARY_PATH:-}"
+
+# Dataset/model identity -- override all four together to reuse this exact
+# script for a different dataset/embodiment without cloning it (only the
+# prefetch step -- downloading/preparing the new dataset -- still needs a
+# dataset-specific script, since that logic isn't generic). Defaults are this
+# repo's original panda_drawer setup, kept for backward compatibility.
+DATASET_PATH="${DATASET_PATH:-examples/panda_drawer/panda_drawer_many_ee_fullres}"
+MODALITY_CONFIG_PATH="${MODALITY_CONFIG_PATH:-examples/panda_drawer/panda_drawer_config.py}"
+EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
+# nvidia/GR00T-N1.7-3B for an unrelated dataset/embodiment, or a local
+# checkpoint dir (e.g. $(ws_find groot_ckpts)/outputs/panda_drawer/checkpoint-2000)
+# to continue from an already-adapted checkpoint for the same embodiment.
+BASE_MODEL_PATH="${BASE_MODEL_PATH:-nvidia/GR00T-N1.7-3B}"
+# panda_drawer needs this (mixed camera aspect ratios -- see comment at the
+# python invocation below); a new dataset with uniform-aspect-ratio cameras
+# can turn it off with LETTER_BOX_TRANSFORM_FLAG=--no-letter-box-transform.
+LETTER_BOX_TRANSFORM_FLAG="${LETTER_BOX_TRANSFORM_FLAG:---letter-box-transform}"
 
 MAX_STEPS="${MAX_STEPS:-2000}"
 # 50 balances I/O against progress-loss risk: at ~25GB/checkpoint this is
@@ -200,12 +231,12 @@ set +e
 # without it. Must match between train and eval -- it's saved into the
 # checkpoint's processor_config.json and restored automatically at eval time.
 CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/launch_finetune.py \
-    --base-model-path nvidia/GR00T-N1.7-3B \
-    --dataset-path examples/panda_drawer/panda_drawer_many_ee_fullres \
-    --embodiment-tag NEW_EMBODIMENT \
-    --modality-config-path examples/panda_drawer/panda_drawer_config.py \
+    --base-model-path "$BASE_MODEL_PATH" \
+    --dataset-path "$DATASET_PATH" \
+    --embodiment-tag "$EMBODIMENT_TAG" \
+    --modality-config-path "$MODALITY_CONFIG_PATH" \
     --num-gpus 1 \
-    --letter-box-transform \
+    "$LETTER_BOX_TRANSFORM_FLAG" \
     --output-dir "$OUTPUT_DIR" \
     --max-steps "$MAX_STEPS" \
     --save-steps "$SAVE_STEPS" \
@@ -236,7 +267,7 @@ echo "Latest completed checkpoint: checkpoint-${latest_step} (target: ${MAX_STEP
 if (( latest_step < MAX_STEPS )); then
     echo "Target not yet reached; chaining next leg on whichever of $CHAIN_PARTITIONS frees up first."
     next_job_output="$(sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
-        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS",CHAIN_PARTITIONS="$CHAIN_PARTITIONS",OUTPUT_DIR="$OUTPUT_DIR" \
+        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS",CHAIN_PARTITIONS="$CHAIN_PARTITIONS",OUTPUT_DIR="$OUTPUT_DIR",DATASET_PATH="$DATASET_PATH",MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH",EMBODIMENT_TAG="$EMBODIMENT_TAG",BASE_MODEL_PATH="$BASE_MODEL_PATH",LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
         --dependency=afterany:"$SLURM_JOB_ID" \
         "$SLURM_SCRIPT")"
     echo "$next_job_output"
