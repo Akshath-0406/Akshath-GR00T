@@ -17,8 +17,12 @@
 #      is present so this job never touches the network)
 #   2. mkdir -p logs
 #
-# Usage:
+# Usage (CHECKPOINT can be relative to $HOME/groot, or an absolute path --
+# e.g. a workspace path from `ws_find groot_ckpts`, since the fine-tune job
+# now writes checkpoints there instead of $HOME -- see panda_drawer_finetune.slurm):
 #   sbatch --export=CHECKPOINT=outputs/panda_drawer/checkpoint-2000 \
+#       scripts/slurm/panda_drawer_open_loop_eval.slurm
+#   sbatch --export=CHECKPOINT=$(ws_find groot_ckpts)/outputs/panda_drawer/checkpoint-2000 \
 #       scripts/slurm/panda_drawer_open_loop_eval.slurm
 
 set -euo pipefail
@@ -36,6 +40,14 @@ fi
 TRAJ_IDS="${TRAJ_IDS:-0}"
 EXECUTION_HORIZON="${EXECUTION_HORIZON:-16}"
 
+# Accept CHECKPOINT as either absolute (workspace paths) or relative to
+# $HOME/groot (the old convention, kept for compatibility).
+if [[ "$CHECKPOINT" = /* ]]; then
+    MODEL_PATH="$CHECKPOINT"
+else
+    MODEL_PATH="$HOME/groot/$CHECKPOINT"
+fi
+
 cd "$HOME/groot"
 source .venv/bin/activate
 
@@ -47,7 +59,7 @@ nvidia-smi
 python gr00t/eval/open_loop_eval.py \
     --dataset-path examples/panda_drawer/panda_drawer_many_ee_fullres \
     --embodiment-tag NEW_EMBODIMENT \
-    --model-path "$HOME/groot/$CHECKPOINT" \
+    --model-path "$MODEL_PATH" \
     --traj-ids $TRAJ_IDS \
     --execution-horizon "$EXECUTION_HORIZON" \
     --save-plot-path "$HOME/groot/outputs/open_loop_eval"

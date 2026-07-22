@@ -17,6 +17,23 @@
 #      network; compute nodes are not expected to have internet access)
 #   2. mkdir -p logs   (SLURM needs this to exist before the job starts, since
 #                        --output/--error are opened before this script runs)
+#   3. ws_allocate groot_ckpts 60   (one-time: allocates the workspace
+#      checkpoints are written to -- see WORKSPACE NOTE below. Re-run
+#      `ws_extend groot_ckpts 60` before it expires if the run is still going.)
+#
+# WORKSPACE NOTE: checkpoints are large (~25GB each with optimizer state) and
+# saved every SAVE_STEPS -- writing them to $HOME triggers bwHPC's automated
+# high-I/O notice (HOME is backed up and not meant for this volume/frequency
+# of writes). OUTPUT_DIR instead resolves to a workspace (`ws_find`), which is
+# local-ish, not backed up, and meant for exactly this. This also means
+# checkpoints are NOT permanent -- workspaces expire (default allocated for 60
+# days above) and get deleted after a grace period. Retrieve/transfer whatever
+# you need before it expires; see the retrieval commands in this repo's
+# conversation history / ask for them again if needed.
+# WS_SUBDIR defaults to "panda_drawer" (this script's dataset); a future
+# script for a different dataset can reuse the same workspace by just
+# exporting a different WS_SUBDIR (or WS_NAME for a fully separate workspace)
+# -- no script changes needed.
 #
 # NOTE ON PARTITIONS: gpu_h100/gpu_h100_short (same physical node pool,
 # uc3n[071-081,103]) intermittently hit "user env retrieval failed requeued
@@ -55,7 +72,7 @@
 # hard kill:
 #   sbatch --partition=gpu_h100_short,gpu_h100,gpu_a100_il,gpu_h100_il \
 #       --time=00:28:00 \
-#       --export=MAX_STEPS=2000,SAVE_STEPS=20,TRAIN_TIMEOUT_SECONDS=1500 \
+#       --export=MAX_STEPS=2000,SAVE_STEPS=50,TRAIN_TIMEOUT_SECONDS=1500 \
 #       scripts/slurm/panda_drawer_finetune.slurm
 #
 # DATALOADER_NUM_WORKERS=0 was tested as a factor in the "user env retrieval
@@ -73,7 +90,12 @@ set -euo pipefail
 export LD_LIBRARY_PATH="$HOME/.conda/envs/ffmpeg-libs/lib:${LD_LIBRARY_PATH:-}"
 
 MAX_STEPS="${MAX_STEPS:-2000}"
-SAVE_STEPS="${SAVE_STEPS:-500}"
+# 50 balances I/O against progress-loss risk: at ~25GB/checkpoint this is
+# ~5x fewer bytes written to the workspace than the SAVE_STEPS=20 this project
+# used earlier (which contributed to a bwHPC high-I/O notice on $HOME before
+# checkpoints moved to a workspace -- see WORKSPACE NOTE above), while still
+# capping any mid-save-kill progress loss at 50 steps.
+SAVE_STEPS="${SAVE_STEPS:-50}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
 # MolmoAct2's known-good scripts always use --num_workers=0 (no multiprocessing
 # dataloader workers); ours defaults to >0 (spawns persistent worker
@@ -122,7 +144,13 @@ python --version
 nvidia-smi
 python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE')"
 
-OUTPUT_DIR="$HOME/groot/outputs/panda_drawer"
+# Workspace-backed output dir -- see WORKSPACE NOTE near the top of this file.
+# OUTPUT_DIR itself takes priority if already set (this is how chained legs
+# below propagate the exact resolved path to the next leg, so only the very
+# first leg needs to call ws_find / needs WS_NAME+WS_SUBDIR to be correct).
+WS_NAME="${WS_NAME:-groot_ckpts}"
+WS_SUBDIR="${WS_SUBDIR:-panda_drawer}"
+OUTPUT_DIR="${OUTPUT_DIR:-$(ws_find "$WS_NAME")/outputs/$WS_SUBDIR}"
 SLURM_SCRIPT="$HOME/groot/scripts/slurm/panda_drawer_finetune.slurm"
 mkdir -p "$OUTPUT_DIR"
 
@@ -208,7 +236,7 @@ echo "Latest completed checkpoint: checkpoint-${latest_step} (target: ${MAX_STEP
 if (( latest_step < MAX_STEPS )); then
     echo "Target not yet reached; chaining next leg on whichever of $CHAIN_PARTITIONS frees up first."
     next_job_output="$(sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
-        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS",CHAIN_PARTITIONS="$CHAIN_PARTITIONS" \
+        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS",CHAIN_PARTITIONS="$CHAIN_PARTITIONS",OUTPUT_DIR="$OUTPUT_DIR" \
         --dependency=afterany:"$SLURM_JOB_ID" \
         "$SLURM_SCRIPT")"
     echo "$next_job_output"
