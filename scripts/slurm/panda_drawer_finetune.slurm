@@ -138,8 +138,13 @@ mkdir -p "$OUTPUT_DIR"
 # checkpoint (rename so it no longer matches transformers' `^checkpoint-\d+$`
 # pattern) before resume detection runs, so get_last_checkpoint() and the
 # chaining step's own "latest_step" scan both skip it automatically.
+# Skip anything already quarantined -- the checkpoint-* glob below also
+# matches previously-renamed checkpoint-N.incomplete dirs, and without this
+# guard every run would re-quarantine them, growing another ".incomplete"
+# suffix each time (observed: checkpoint-320.incomplete.incomplete).
 for ckpt in "$OUTPUT_DIR"/checkpoint-*; do
     [[ -d "$ckpt" ]] || continue
+    [[ "$ckpt" == *.incomplete ]] && continue
     if [[ ! -f "$ckpt/trainer_state.json" ]]; then
         echo "Quarantining incomplete checkpoint (no trainer_state.json): $ckpt -> ${ckpt}.incomplete"
         mv "$ckpt" "${ckpt}.incomplete"
