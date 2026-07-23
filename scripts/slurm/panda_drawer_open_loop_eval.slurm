@@ -55,6 +55,12 @@ TRAJ_IDS="${TRAJ_IDS:-0}"
 EXECUTION_HORIZON="${EXECUTION_HORIZON:-16}"
 DATASET_PATH="${DATASET_PATH:-examples/panda_drawer/panda_drawer_many_ee_fullres}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
+# open_loop_eval.py's own default (4) is on the low end for a flow-matching
+# action head -- fewer denoising steps means coarser sampling noise
+# independent of how well-trained the model is. Override higher (e.g. 10-20)
+# to check whether prediction jerkiness is a sampling artifact rather than a
+# training-quality issue.
+DENOISING_STEPS="${DENOISING_STEPS:-4}"
 
 # Accept CHECKPOINT as either absolute (workspace paths) or relative to
 # $HOME/groot (the old convention, kept for compatibility).
@@ -89,6 +95,7 @@ python gr00t/eval/open_loop_eval.py \
     --model-path "$MODEL_PATH" \
     --traj-ids $TRAJ_IDS \
     --execution-horizon "$EXECUTION_HORIZON" \
+    --denoising-steps "$DENOISING_STEPS" \
     --save-plot-path "$PLOT_PATH"
 
 echo "Plot saved to: $PLOT_PATH"
