@@ -72,10 +72,23 @@ echo "Python: $(which python)"
 python --version
 nvidia-smi
 
+# Job-ID-scoped filename so re-running eval doesn't clobber a previous run's
+# plot, and an explicit .png extension (matplotlib infers PNG from a missing
+# extension anyway, but a bare extensionless filename confuses some viewers).
+# NOTE: open_loop_eval.py's plot_trajectory_results() saves every trajectory
+# in --traj-ids to this same path (its per-trajectory filenames comment isn't
+# actually implemented) -- if you ever pass multiple TRAJ_IDS in one job, only
+# the last trajectory's plot survives. Submit one job per trajectory if you
+# need separate plots for each.
+PLOT_PATH="$HOME/groot/outputs/open_loop_eval/${SLURM_JOB_ID}.png"
+mkdir -p "$(dirname "$PLOT_PATH")"
+
 python gr00t/eval/open_loop_eval.py \
     --dataset-path "$DATASET_PATH" \
     --embodiment-tag "$EMBODIMENT_TAG" \
     --model-path "$MODEL_PATH" \
     --traj-ids $TRAJ_IDS \
     --execution-horizon "$EXECUTION_HORIZON" \
-    --save-plot-path "$HOME/groot/outputs/open_loop_eval"
+    --save-plot-path "$PLOT_PATH"
+
+echo "Plot saved to: $PLOT_PATH"
