@@ -55,6 +55,7 @@ def plot_trajectory_results(
     action_keys: list[str],
     execution_horizon: int,
     save_plot_path: str,
+    dim_labels: list[str] | None = None,
 ) -> None:
     """
     Plot and save trajectory results comparing ground truth and predicted actions.
@@ -68,6 +69,9 @@ def plot_trajectory_results(
         action_keys: List of action modality keys
         execution_horizon: Number of predicted-chunk steps executed per inference
         save_plot_path: Path to save the plot
+        dim_labels: Per-dimension subplot titles (e.g. "x", "rot6d_2", "gripper")
+            in place of the generic "Action {i}". Falls back to the generic
+            title if not provided or shorter than the number of dimensions.
     """
     actual_steps = len(gt_action_across_time)
     action_dim = gt_action_across_time.shape[1]
@@ -116,7 +120,10 @@ def plot_trajectory_results(
             else:
                 ax.plot(j, gt_action_across_time[j, action_idx], "ro")
 
-        ax.set_title(f"Action {action_idx}")
+        if dim_labels is not None and action_idx < len(dim_labels):
+            ax.set_title(dim_labels[action_idx])
+        else:
+            ax.set_title(f"Action {action_idx}")
         ax.legend()
 
     plt.tight_layout()
@@ -126,6 +133,38 @@ def plot_trajectory_results(
     plt.savefig(save_plot_path)
 
     plt.close()  # Close the figure to free memory
+
+
+def _build_action_dim_labels(
+    traj: pd.DataFrame, action_keys: list[str], action_configs: list | None
+) -> list[str]:
+    """Build a human-readable label per flattened action dimension (e.g.
+    ["x", "y", "z", "rot6d_0", ..., "rot6d_5", "gripper"]) instead of the
+    generic "Action 0".."Action N" the plot used before -- lets someone
+    unfamiliar with this dataset's modality config read the plot directly.
+    Dataset-agnostic: falls back to "{key}_{i}" for any key/format combination
+    without a known semantic breakdown (e.g. a NON_EEF/DEFAULT key wider than
+    1, like joint_pos), so this works for any future dataset's action config.
+    """
+    config_by_key = {}
+    if action_configs:
+        for cfg in action_configs:
+            config_by_key[cfg.state_key] = cfg
+
+    labels: list[str] = []
+    for key in action_keys:
+        width = np.vstack([arr for arr in traj[f"action.{key}"]]).shape[-1]
+        cfg = config_by_key.get(key)
+        fmt_value = getattr(getattr(cfg, "format", None), "value", None)
+        if fmt_value == "xyz+rot6d" and width == 9:
+            labels.extend(["x", "y", "z"] + [f"rot6d_{i}" for i in range(6)])
+        elif fmt_value == "xyz+rotvec" and width == 6:
+            labels.extend(["x", "y", "z"] + [f"rotvec_{i}" for i in range(3)])
+        elif width == 1:
+            labels.append(key)
+        else:
+            labels.extend([f"{key}_{i}" for i in range(width)])
+    return labels
 
 
 def parse_action_gr00t(action: dict[str, Any]) -> dict[str, Any]:
@@ -220,6 +259,9 @@ def evaluate_single_trajectory(
     logging.info(f"pred_action_joints vs time {pred_action_across_time.shape}")
 
     # Plot trajectory results
+    dim_labels = _build_action_dim_labels(
+        traj, action_keys, getattr(loader.modality_configs.get("action"), "action_configs", None)
+    )
     plot_trajectory_results(
         state_joints_across_time=state_joints_across_time,
         gt_action_across_time=gt_action_across_time,
@@ -229,6 +271,7 @@ def evaluate_single_trajectory(
         action_keys=action_keys,
         execution_horizon=execution_horizon,
         save_plot_path=save_plot_path or f"/tmp/open_loop_eval/traj_{traj_id}.jpeg",
+        dim_labels=dim_labels,
     )
 
     return mse, mae
