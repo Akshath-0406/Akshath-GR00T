@@ -78,15 +78,20 @@ echo "Python: $(which python)"
 python --version
 nvidia-smi
 
-# Job-ID-scoped filename so re-running eval doesn't clobber a previous run's
-# plot, and an explicit .png extension (matplotlib infers PNG from a missing
-# extension anyway, but a bare extensionless filename confuses some viewers).
+# Named after the checkpoint being evaluated (e.g. checkpoint-4000.png) so a
+# folder of these self-documents progress over time, and an explicit .png
+# extension (matplotlib infers PNG from a missing extension anyway, but a
+# bare extensionless filename confuses some viewers).
+# NOTE: re-running eval on the SAME checkpoint (e.g. to try a different
+# --denoising-steps) overwrites this same file rather than keeping both --
+# rename/move the old one first if you want to keep it.
 # NOTE: open_loop_eval.py's plot_trajectory_results() saves every trajectory
 # in --traj-ids to this same path (its per-trajectory filenames comment isn't
 # actually implemented) -- if you ever pass multiple TRAJ_IDS in one job, only
 # the last trajectory's plot survives. Submit one job per trajectory if you
 # need separate plots for each.
-PLOT_PATH="$HOME/groot/outputs/open_loop_eval/${SLURM_JOB_ID}.png"
+CKPT_NAME="$(basename "$MODEL_PATH")"
+PLOT_PATH="$HOME/groot/outputs/open_loop_eval/${CKPT_NAME}.png"
 mkdir -p "$(dirname "$PLOT_PATH")"
 
 python gr00t/eval/open_loop_eval.py \
