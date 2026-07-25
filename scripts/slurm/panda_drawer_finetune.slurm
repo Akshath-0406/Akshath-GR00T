@@ -266,8 +266,22 @@ echo "Latest completed checkpoint: checkpoint-${latest_step} (target: ${MAX_STEP
 
 if (( latest_step < MAX_STEPS )); then
     echo "Target not yet reached; chaining next leg on whichever of $CHAIN_PARTITIONS frees up first."
-    next_job_output="$(sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
-        --export=MAX_STEPS="$MAX_STEPS",SAVE_STEPS="$SAVE_STEPS",GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE",TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS",DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS",CHAIN_PARTITIONS="$CHAIN_PARTITIONS",OUTPUT_DIR="$OUTPUT_DIR",DATASET_PATH="$DATASET_PATH",MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH",EMBODIMENT_TAG="$EMBODIMENT_TAG",BASE_MODEL_PATH="$BASE_MODEL_PATH",LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
+    # Pass overrides as real environment variables (prefix-assignment) rather
+    # than cramming them into --export=VAR1=val1,VAR2=val2 -- sbatch's --export
+    # splits on EVERY comma to separate different variables, so a
+    # comma-containing value like CHAIN_PARTITIONS
+    # (gpu_h100_short,gpu_h100,gpu_a100_il,gpu_h100_il) gets silently truncated
+    # to just its first fragment ("gpu_h100_short") when embedded that way --
+    # which then pins every subsequent chained leg to one partition instead of
+    # racing all four (observed: job pinned to gpu_h100_short alone, scheduled
+    # 3 days out while the other three partitions sat idle). --export=ALL
+    # (sbatch's default even without the flag) forwards the whole calling
+    # environment, so prefix-assigning these here is sufficient -- no
+    # comma-splitting involved since they're real env vars, not a
+    # single-string list.
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
+        sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
+        --export=ALL \
         --dependency=afterany:"$SLURM_JOB_ID" \
         "$SLURM_SCRIPT")"
     echo "$next_job_output"
