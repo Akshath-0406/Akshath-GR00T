@@ -56,6 +56,7 @@ def plot_trajectory_results(
     execution_horizon: int,
     save_plot_path: str,
     dim_labels: list[str] | None = None,
+    show_inference_points: bool = True,
 ) -> None:
     """
     Plot and save trajectory results comparing ground truth and predicted actions.
@@ -72,6 +73,10 @@ def plot_trajectory_results(
         dim_labels: Per-dimension subplot titles (e.g. "x", "rot6d_2", "gripper")
             in place of the generic "Action {i}". Falls back to the generic
             title if not provided or shorter than the number of dimensions.
+        show_inference_points: Whether to mark each re-planning step with a red
+            dot. At small execution_horizon values the dots can be dense enough
+            to obscure the gt/pred curves they're meant to annotate -- turn off
+            to inspect the curves cleanly.
     """
     actual_steps = len(gt_action_across_time)
     action_dim = gt_action_across_time.shape[1]
@@ -109,16 +114,17 @@ def plot_trajectory_results(
         ax.plot(pred_action_across_time[:, action_idx], label="pred action")
 
         # put a dot every ACTION_HORIZON
-        for j in range(0, actual_steps, execution_horizon):
-            if j == 0:
-                ax.plot(
-                    j,
-                    gt_action_across_time[j, action_idx],
-                    "ro",
-                    label="inference point",
-                )
-            else:
-                ax.plot(j, gt_action_across_time[j, action_idx], "ro")
+        if show_inference_points:
+            for j in range(0, actual_steps, execution_horizon):
+                if j == 0:
+                    ax.plot(
+                        j,
+                        gt_action_across_time[j, action_idx],
+                        "ro",
+                        label="inference point",
+                    )
+                else:
+                    ax.plot(j, gt_action_across_time[j, action_idx], "ro")
 
         if dim_labels is not None and action_idx < len(dim_labels):
             ax.set_title(dim_labels[action_idx])
@@ -181,6 +187,7 @@ def evaluate_single_trajectory(
     steps=300,
     execution_horizon=16,
     save_plot_path=None,
+    show_inference_points=True,
 ):
     # Ensure steps doesn't exceed trajectory length
     traj = loader[traj_id]
@@ -272,6 +279,7 @@ def evaluate_single_trajectory(
         execution_horizon=execution_horizon,
         save_plot_path=save_plot_path or f"/tmp/open_loop_eval/traj_{traj_id}.jpeg",
         dim_labels=dim_labels,
+        show_inference_points=show_inference_points,
     )
 
     return mse, mae
@@ -314,6 +322,12 @@ class ArgsConfig:
 
     modality_keys: list[str] | None = None
     """List of modality keys to plot. If None, plot all keys."""
+
+    show_inference_points: bool = True
+    """Mark each re-planning step with a red dot on the plot. At small
+    execution_horizon values the dots can be dense enough to obscure the
+    gt/pred curves -- turn off (--no-show-inference-points) to inspect the
+    curves cleanly."""
 
 
 def main(args: ArgsConfig):
@@ -393,6 +407,7 @@ def main(args: ArgsConfig):
             steps=args.steps,
             execution_horizon=args.execution_horizon,
             save_plot_path=args.save_plot_path,
+            show_inference_points=args.show_inference_points,
         )
         logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
         all_mse.append(mse)

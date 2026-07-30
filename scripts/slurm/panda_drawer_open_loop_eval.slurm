@@ -61,6 +61,16 @@ EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
 # to check whether prediction jerkiness is a sampling artifact rather than a
 # training-quality issue.
 DENOISING_STEPS="${DENOISING_STEPS:-4}"
+# At small EXECUTION_HORIZON values the red inference-point dots land close
+# enough together to obscure the gt/pred curves underneath them. Override to
+# "false" (SHOW_INFERENCE_POINTS=false) to drop them and see the curves
+# cleanly.
+SHOW_INFERENCE_POINTS="${SHOW_INFERENCE_POINTS:-true}"
+if [[ "$SHOW_INFERENCE_POINTS" == "true" ]]; then
+    SHOW_INFERENCE_POINTS_FLAG="--show-inference-points"
+else
+    SHOW_INFERENCE_POINTS_FLAG="--no-show-inference-points"
+fi
 
 # Accept CHECKPOINT as either absolute (workspace paths) or relative to
 # $HOME/groot (the old convention, kept for compatibility).
@@ -101,6 +111,7 @@ python gr00t/eval/open_loop_eval.py \
     --traj-ids $TRAJ_IDS \
     --execution-horizon "$EXECUTION_HORIZON" \
     --denoising-steps "$DENOISING_STEPS" \
+    "$SHOW_INFERENCE_POINTS_FLAG" \
     --save-plot-path "$PLOT_PATH"
 
 echo "Plot saved to: $PLOT_PATH"
