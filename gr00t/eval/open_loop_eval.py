@@ -18,12 +18,14 @@ from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Literal
 import warnings
 
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.state_action.pose import EndEffectorPose
+from gr00t.data.types import ActionFormat
 from gr00t.data.utils import parse_observation_gr00t
 from gr00t.eval._horizon_contract import PolicyHorizonSpec, migrate_deprecated_action_horizon_argv
 from gr00t.policy import BasePolicy
@@ -142,7 +144,10 @@ def plot_trajectory_results(
 
 
 def _build_action_dim_labels(
-    traj: pd.DataFrame, action_keys: list[str], action_configs: list | None
+    traj: pd.DataFrame,
+    action_keys: list[str],
+    action_configs: list | None,
+    rotation_display: Literal["rot6d", "quaternion"] = "rot6d",
 ) -> list[str]:
     """Build a human-readable label per flattened action dimension (e.g.
     ["x", "y", "z", "rot6d_0", ..., "rot6d_5", "gripper"]) instead of the
@@ -151,6 +156,11 @@ def _build_action_dim_labels(
     Dataset-agnostic: falls back to "{key}_{i}" for any key/format combination
     without a known semantic breakdown (e.g. a NON_EEF/DEFAULT key wider than
     1, like joint_pos), so this works for any future dataset's action config.
+
+    rotation_display="quaternion" labels an xyz+rot6d block as
+    ["x", "y", "z", "quat_w", "quat_x", "quat_y", "quat_z"] instead --
+    must match whatever _maybe_convert_rot6d_to_quaternion did to the data
+    being plotted.
     """
     config_by_key = {}
     if action_configs:
@@ -162,7 +172,9 @@ def _build_action_dim_labels(
         width = np.vstack([arr for arr in traj[f"action.{key}"]]).shape[-1]
         cfg = config_by_key.get(key)
         fmt_value = getattr(getattr(cfg, "format", None), "value", None)
-        if fmt_value == "xyz+rot6d" and width == 9:
+        if fmt_value == "xyz+rot6d" and width == 9 and rotation_display == "quaternion":
+            labels.extend(["x", "y", "z", "quat_w", "quat_x", "quat_y", "quat_z"])
+        elif fmt_value == "xyz+rot6d" and width == 9:
             labels.extend(["x", "y", "z"] + [f"rot6d_{i}" for i in range(6)])
         elif fmt_value == "xyz+rotvec" and width == 6:
             labels.extend(["x", "y", "z"] + [f"rotvec_{i}" for i in range(3)])
@@ -171,6 +183,57 @@ def _build_action_dim_labels(
         else:
             labels.extend([f"{key}_{i}" for i in range(width)])
     return labels
+
+
+def _maybe_convert_rot6d_to_quaternion(
+    action_across_time: np.ndarray,
+    traj: pd.DataFrame,
+    action_keys: list[str],
+    action_configs: list | None,
+    rotation_display: Literal["rot6d", "quaternion"],
+) -> np.ndarray:
+    """Replace any xyz+rot6d (9-dim) action block with xyz+quat_wxyz (7-dim),
+    for plotting only -- MSE/MAE are computed on the original rot6d arrays
+    upstream of this, so switching --rotation-display never changes the
+    reported error numbers, only how the plot displays rotation.
+
+    Quaternions have a sign ambiguity (q and -q are the same rotation);
+    scipy's per-frame conversion doesn't guarantee consecutive frames land on
+    the same sign, which would show up as a spurious sign-flip discontinuity
+    unrelated to actual model jerkiness. Enforced continuous here by flipping
+    a frame's sign if it's closer to the negation of the previous frame.
+    """
+    if rotation_display != "quaternion":
+        return action_across_time
+
+    config_by_key = {}
+    if action_configs:
+        for cfg in action_configs:
+            config_by_key[cfg.state_key] = cfg
+
+    out_blocks = []
+    col = 0
+    for key in action_keys:
+        width = np.vstack([arr for arr in traj[f"action.{key}"]]).shape[-1]
+        cfg = config_by_key.get(key)
+        fmt_value = getattr(getattr(cfg, "format", None), "value", None)
+        block = action_across_time[:, col : col + width]
+        if fmt_value == "xyz+rot6d" and width == 9:
+            xyz = block[:, :3]
+            quat = np.array(
+                [
+                    EndEffectorPose.from_action_format(row, ActionFormat.XYZ_ROT6D).quat_wxyz
+                    for row in block
+                ]
+            )
+            for t in range(1, len(quat)):
+                if np.dot(quat[t], quat[t - 1]) < 0:
+                    quat[t] = -quat[t]
+            out_blocks.append(np.concatenate([xyz, quat], axis=1))
+        else:
+            out_blocks.append(block)
+        col += width
+    return np.concatenate(out_blocks, axis=1)
 
 
 def parse_action_gr00t(action: dict[str, Any]) -> dict[str, Any]:
@@ -188,6 +251,7 @@ def evaluate_single_trajectory(
     execution_horizon=16,
     save_plot_path=None,
     show_inference_points=True,
+    rotation_display: Literal["rot6d", "quaternion"] = "rot6d",
 ):
     # Ensure steps doesn't exceed trajectory length
     traj = loader[traj_id]
@@ -265,14 +329,23 @@ def evaluate_single_trajectory(
     logging.info(f"gt_action_joints vs time {gt_action_across_time.shape}")
     logging.info(f"pred_action_joints vs time {pred_action_across_time.shape}")
 
-    # Plot trajectory results
+    # Plot trajectory results. rotation_display only affects this plotting
+    # step -- mse/mae above are always computed on the raw rot6d arrays, so
+    # switching --rotation-display never changes the reported error numbers.
+    action_configs = getattr(loader.modality_configs.get("action"), "action_configs", None)
     dim_labels = _build_action_dim_labels(
-        traj, action_keys, getattr(loader.modality_configs.get("action"), "action_configs", None)
+        traj, action_keys, action_configs, rotation_display=rotation_display
+    )
+    plot_gt_action_across_time = _maybe_convert_rot6d_to_quaternion(
+        gt_action_across_time, traj, action_keys, action_configs, rotation_display
+    )
+    plot_pred_action_across_time = _maybe_convert_rot6d_to_quaternion(
+        pred_action_across_time, traj, action_keys, action_configs, rotation_display
     )
     plot_trajectory_results(
         state_joints_across_time=state_joints_across_time,
-        gt_action_across_time=gt_action_across_time,
-        pred_action_across_time=pred_action_across_time,
+        gt_action_across_time=plot_gt_action_across_time,
+        pred_action_across_time=plot_pred_action_across_time,
         traj_id=traj_id,
         state_keys=state_keys,
         action_keys=action_keys,
@@ -328,6 +401,13 @@ class ArgsConfig:
     execution_horizon values the dots can be dense enough to obscure the
     gt/pred curves -- turn off (--no-show-inference-points) to inspect the
     curves cleanly."""
+
+    rotation_display: Literal["rot6d", "quaternion"] = "rot6d"
+    """How to display an xyz+rot6d action block on the plot: raw "rot6d"
+    (6 numbers, no direct physical meaning per-dimension) or converted to
+    "quaternion" (quat_w/x/y/z) for a more interpretable view. Only affects
+    the plot -- MSE/MAE are always computed on the raw rot6d values, so this
+    doesn't change the reported error numbers."""
 
 
 def main(args: ArgsConfig):
@@ -408,6 +488,7 @@ def main(args: ArgsConfig):
             execution_horizon=args.execution_horizon,
             save_plot_path=args.save_plot_path,
             show_inference_points=args.show_inference_points,
+            rotation_display=args.rotation_display,
         )
         logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
         all_mse.append(mse)

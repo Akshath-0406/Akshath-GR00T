@@ -71,6 +71,10 @@ if [[ "$SHOW_INFERENCE_POINTS" == "true" ]]; then
 else
     SHOW_INFERENCE_POINTS_FLAG="--no-show-inference-points"
 fi
+# "rot6d" (raw, 6 numbers with no direct physical meaning per-dimension) or
+# "quaternion" (quat_w/x/y/z, more interpretable) for the plot only -- doesn't
+# change the reported MSE/MAE either way.
+ROTATION_DISPLAY="${ROTATION_DISPLAY:-rot6d}"
 
 # Accept CHECKPOINT as either absolute (workspace paths) or relative to
 # $HOME/groot (the old convention, kept for compatibility).
@@ -112,6 +116,7 @@ python gr00t/eval/open_loop_eval.py \
     --execution-horizon "$EXECUTION_HORIZON" \
     --denoising-steps "$DENOISING_STEPS" \
     "$SHOW_INFERENCE_POINTS_FLAG" \
+    --rotation-display "$ROTATION_DISPLAY" \
     --save-plot-path "$PLOT_PATH"
 
 echo "Plot saved to: $PLOT_PATH"
