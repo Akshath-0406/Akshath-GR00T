@@ -48,6 +48,29 @@ class ProfCallback(TrainerCallback):
         self.prof.step()
 
 
+class _ResyncStepIntervalsCallback(TrainerCallback):
+    """Resync save/logging/eval intervals from the current run's args on resume.
+
+    ``Trainer._inner_training_loop`` does its own
+    ``self.state = TrainerState.load_from_json(...)`` when resuming (after
+    ``Gr00tTrainer.train()`` already ran), wholesale-restoring
+    save_steps/logging_steps/eval_steps as they were recorded in the checkpoint
+    being resumed from. It only resyncs max_steps/num_train_epochs afterward
+    (via ``TrainerState.init_training_references``), so a changed --save-steps
+    (etc.) on a resumed run is otherwise silently ignored --
+    ``DefaultFlowCallback.on_step_end`` checks ``state.save_steps``, not
+    ``args.save_steps``. ``on_train_begin`` fires after that internal reload
+    and before the step loop starts, so it's the first point where overwriting
+    ``state`` here actually sticks.
+    """
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        state.save_steps = args.save_steps
+        state.logging_steps = args.logging_steps
+        if args.eval_steps is not None:
+            state.eval_steps = args.eval_steps
+
+
 class _BatchIterator:
     """Lightweight iterator that yields pre-collated batches."""
 
@@ -165,6 +188,7 @@ class Gr00tTrainer(Trainer):
         self.action_offset = kwargs.pop("action_offset", None)
         self.multiprocessing_context = kwargs.pop("multiprocessing_context", "fork")
         super().__init__(*args, **kwargs)
+        self.add_callback(_ResyncStepIntervalsCallback())
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         # Hide epoch from logged metrics as it's misleading for Iterable datasets.
@@ -244,18 +268,6 @@ class Gr00tTrainer(Trainer):
             self.state = TrainerState.load_from_json(
                 os.path.join(latest_checkpoint, TRAINER_STATE_NAME)
             )
-            # TrainerState.load_from_json restores save_steps/logging_steps/eval_steps
-            # as they were recorded in the checkpoint being resumed from. Unlike
-            # max_steps/num_train_epochs (resynced later by
-            # TrainerState.init_training_references), these three are never resynced
-            # to the current run's TrainingArguments by HF's own resume path --
-            # DefaultFlowCallback.on_step_end checks state.save_steps/logging_steps/
-            # eval_steps, not args.*, so a changed --save_steps (etc.) on a resumed
-            # run would otherwise silently keep using the old checkpoint's value.
-            self.state.save_steps = self.args.save_steps
-            self.state.logging_steps = self.args.logging_steps
-            if self.args.eval_steps is not None:
-                self.state.eval_steps = self.args.eval_steps
 
         return super().train(resume_from_checkpoint=latest_checkpoint, **kwargs)
 
