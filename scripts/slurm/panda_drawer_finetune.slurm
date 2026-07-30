@@ -128,6 +128,14 @@ MAX_STEPS="${MAX_STEPS:-2000}"
 # capping any mid-save-kill progress loss at 50 steps.
 SAVE_STEPS="${SAVE_STEPS:-50}"
 GLOBAL_BATCH_SIZE="${GLOBAL_BATCH_SIZE:-32}"
+# Effective batch = GLOBAL_BATCH_SIZE * GRADIENT_ACCUMULATION_STEPS. Only
+# GLOBAL_BATCH_SIZE=32 is confirmed to fit in memory on this model/dataset
+# (3B params, 3 full-res cameras) -- to test a larger effective batch, raise
+# this instead of GLOBAL_BATCH_SIZE, since accumulation reaches a bigger
+# effective batch via multiple safe-sized forward/backward passes per
+# optimizer step, not a bigger single pass (no extra memory needed, just more
+# wall-clock time per step -- roughly proportional to this value).
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-1}"
 # MolmoAct2's known-good scripts always use --num_workers=0 (no multiprocessing
 # dataloader workers); ours defaults to >0 (spawns persistent worker
 # subprocesses -- see gr00t/experiment/trainer.py). Override to 0 to test
@@ -242,6 +250,7 @@ CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/
     --save-steps "$SAVE_STEPS" \
     --save-total-limit 5 \
     --global-batch-size "$GLOBAL_BATCH_SIZE" \
+    --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS" \
     --dataloader-num-workers "$DATALOADER_NUM_WORKERS" \
     "${RESUME_ARGS[@]}"
 train_exit=$?
@@ -279,7 +288,7 @@ if (( latest_step < MAX_STEPS )); then
     # environment, so prefix-assigning these here is sufficient -- no
     # comma-splitting involved since they're real env vars, not a
     # single-string list.
-    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
         sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
         --export=ALL \
         --dependency=afterany:"$SLURM_JOB_ID" \
