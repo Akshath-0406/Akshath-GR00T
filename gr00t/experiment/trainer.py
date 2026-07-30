@@ -244,6 +244,18 @@ class Gr00tTrainer(Trainer):
             self.state = TrainerState.load_from_json(
                 os.path.join(latest_checkpoint, TRAINER_STATE_NAME)
             )
+            # TrainerState.load_from_json restores save_steps/logging_steps/eval_steps
+            # as they were recorded in the checkpoint being resumed from. Unlike
+            # max_steps/num_train_epochs (resynced later by
+            # TrainerState.init_training_references), these three are never resynced
+            # to the current run's TrainingArguments by HF's own resume path --
+            # DefaultFlowCallback.on_step_end checks state.save_steps/logging_steps/
+            # eval_steps, not args.*, so a changed --save_steps (etc.) on a resumed
+            # run would otherwise silently keep using the old checkpoint's value.
+            self.state.save_steps = self.args.save_steps
+            self.state.logging_steps = self.args.logging_steps
+            if self.args.eval_steps is not None:
+                self.state.eval_steps = self.args.eval_steps
 
         return super().train(resume_from_checkpoint=latest_checkpoint, **kwargs)
 
