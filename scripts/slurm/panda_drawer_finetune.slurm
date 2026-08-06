@@ -302,8 +302,14 @@ if (( latest_step < MAX_STEPS )); then
     # environment, so prefix-assigning these here is sufficient -- no
     # comma-splitting involved since they're real env vars, not a
     # single-string list.
+    # --job-name is passed explicitly (SLURM doesn't forward it via
+    # --export=ALL -- job name isn't an env var) so every chained leg keeps
+    # the name the FIRST leg was submitted with, instead of falling back to
+    # this script's #SBATCH --job-name default. Without this, `sacct
+    # --name=<custom-name>` only ever finds the first leg of a chain.
     next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
         sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
+        --job-name="$SLURM_JOB_NAME" \
         --export=ALL \
         --dependency=afterany:"$SLURM_JOB_ID" \
         "$SLURM_SCRIPT")"
