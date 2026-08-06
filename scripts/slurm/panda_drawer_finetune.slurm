@@ -183,6 +183,20 @@ python --version
 nvidia-smi
 python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NONE')"
 
+# Echo the resolved run config so a --export override that silently didn't
+# take (typo'd var name, wrong quoting, etc.) is visible in the log instead
+# of only discoverable by inspecting the finished checkpoint's config.json.
+echo "--- Run config ---"
+echo "DATASET_PATH: $DATASET_PATH"
+echo "MODALITY_CONFIG_PATH: $MODALITY_CONFIG_PATH"
+echo "EMBODIMENT_TAG: $EMBODIMENT_TAG"
+echo "BASE_MODEL_PATH: $BASE_MODEL_PATH"
+echo "MAX_STEPS: $MAX_STEPS"
+echo "SAVE_STEPS: $SAVE_STEPS"
+echo "GLOBAL_BATCH_SIZE: $GLOBAL_BATCH_SIZE"
+echo "GRADIENT_ACCUMULATION_STEPS: $GRADIENT_ACCUMULATION_STEPS"
+echo "------------------"
+
 # Workspace-backed output dir -- see WORKSPACE NOTE near the top of this file.
 # OUTPUT_DIR itself takes priority if already set (this is how chained legs
 # below propagate the exact resolved path to the next leg, so only the very
