@@ -45,6 +45,13 @@ if [ ! -d .venv ]; then
 else
     source .venv/bin/activate
 fi
+# convert_v3_to_v2.py shells out to the `ffmpeg` binary for its per-episode
+# video re-splitting (separate from torchcodec's runtime *library* need,
+# which is what LD_LIBRARY_PATH above is for) -- the conda-forge ffmpeg-libs
+# env built earlier in this script also provides the CLI binary, just not on
+# PATH by default.
+export PATH="$HOME/.conda/envs/ffmpeg-libs/bin:$PATH"
+which ffmpeg
 python convert_v3_to_v2.py \
     --repo-id kitalr/panda_stack_two_cup_ee_fullres_v3.0 \
     --root "$HOME/groot/examples/panda_stack_two_cup"
