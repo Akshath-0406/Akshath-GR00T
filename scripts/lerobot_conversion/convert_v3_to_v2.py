@@ -332,7 +332,16 @@ def _extract_video_segment(
 
     dst.parent.mkdir(parents=True, exist_ok=True)
 
-    # Build command with validated parameters
+    # Build command with validated parameters.
+    # Deliberately NOT using "-c copy": with input-side "-ss" (fast seek)
+    # and no re-encoding, ffmpeg can only cut at existing keyframe
+    # boundaries, not the exact requested frame -- the resulting segment's
+    # actual decodable frame count can then diverge from what the
+    # timestamp-based episode-length metadata expects (observed as
+    # torchcodec's "Invalid frame index=N; must be less than N" at
+    # training time, on episodes where the keyframe-snap happened to clip
+    # off the tail). Re-encoding trades some conversion time for
+    # frame-accurate cuts.
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -344,8 +353,6 @@ def _extract_video_segment(
         str(src),
         "-t",
         f"{duration:.6f}",
-        "-c",
-        "copy",
         "-avoid_negative_ts",
         "1",
         "-y",
