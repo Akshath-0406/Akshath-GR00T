@@ -342,6 +342,13 @@ def _extract_video_segment(
     # training time, on episodes where the keyframe-snap happened to clip
     # off the tail). Re-encoding trades some conversion time for
     # frame-accurate cuts.
+    # Also deliberately NOT using "-avoid_negative_ts": that flag exists to
+    # correct negative packet timestamps produced by stream-copying a
+    # segment that starts mid-GOP -- a copy-mode artifact. With
+    # re-encoding, the encoder assigns clean monotonic timestamps from
+    # scratch, so the flag is not just unneeded but was observed producing
+    # output torchcodec's decoder couldn't even open ("Could not seek file
+    # to pts=0: Invalid argument") once combined with re-encoding.
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -353,8 +360,6 @@ def _extract_video_segment(
         str(src),
         "-t",
         f"{duration:.6f}",
-        "-avoid_negative_ts",
-        "1",
         "-y",
         str(dst),
     ]
