@@ -365,13 +365,18 @@ def _extract_video_segment(
     ]
 
     try:
-        # Use more secure subprocess call with explicit timeout
+        # Use more secure subprocess call with explicit timeout. Generous
+        # budget (not 300s) because this script runs on a shared login node
+        # where per-user CPU is often capped to a single core (see nproc)
+        # and system load can vary wildly -- a 33s segment has been observed
+        # taking >5min under contention despite nothing being wrong with the
+        # ffmpeg command itself.
         subprocess.run(
             cmd,
             check=True,
-            timeout=300,
+            timeout=1800,
             capture_output=True,
-            text=True,  # 5 minute timeout
+            text=True,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"ffmpeg timed out while processing video '{src}' -> '{dst}'") from exc
