@@ -424,11 +424,20 @@ def convert_videos(
             records = sorted(
                 records, key=lambda rec: float(rec[f"videos/{video_key}/from_timestamp"])
             )
+            # from_timestamp/to_timestamp are cumulative across this video_key's
+            # entire timeline, not reset per physical shard file -- each mp4
+            # file's own pts independently starts at 0, so timestamps must be
+            # re-based to be local to this file (mirrors the dataset_from_index
+            # offset subtraction convert_data() already does above). Without
+            # this, any file beyond the first silently receives a -ss/-t range
+            # past the file's actual duration, and ffmpeg writes an empty
+            # (zero-frame) output instead of erroring.
+            file_offset = float(records[0][f"videos/{video_key}/from_timestamp"])
 
             for record in records:
                 episode_index = int(record["episode_index"])
-                start = float(record[f"videos/{video_key}/from_timestamp"])
-                end = float(record[f"videos/{video_key}/to_timestamp"])
+                start = float(record[f"videos/{video_key}/from_timestamp"]) - file_offset
+                end = float(record[f"videos/{video_key}/to_timestamp"]) - file_offset
 
                 dest_chunk = episode_index // chunks_size
                 dest_path = new_root / LEGACY_VIDEO_PATH_TEMPLATE.format(
