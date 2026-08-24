@@ -40,10 +40,10 @@ deactivate
 mkdir -p examples/panda_sort_three
 
 declare -A VARIANTS=(
-    [full]="kitalr/panda_sort_three_continued_ee_fullres_full"
-    [no_green]="kitalr/panda_sort_three_continued_ee_fullres_no_green"
-    [no_red]="kitalr/panda_sort_three_continued_ee_fullres_no_red"
-    [no_yellow]="kitalr/panda_sort_three_continued_ee_fullres_no_yellow"
+    [full]="kitalr/panda_sort_three_continued_ee_fullres_full_v21"
+    [no_green]="kitalr/panda_sort_three_continued_ee_fullres_no_green_v21"
+    [no_red]="kitalr/panda_sort_three_continued_ee_fullres_no_red_v21"
+    [no_yellow]="kitalr/panda_sort_three_continued_ee_fullres_no_yellow_v21"
 )
 
 for variant in "${!VARIANTS[@]}"; do
