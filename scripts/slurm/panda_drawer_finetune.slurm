@@ -405,8 +405,18 @@ if (( latest_step < MAX_STEPS )); then
     # the name the FIRST leg was submitted with, instead of falling back to
     # this script's #SBATCH --job-name default. Without this, `sacct
     # --name=<custom-name>` only ever finds the first leg of a chain.
+    # --mem/--cpus-per-task are likewise passed explicitly and scaled by
+    # NUM_GPUS -- without this, a chained leg silently falls back to this
+    # file's #SBATCH --mem=120G/--cpus-per-task=16 (the NUM_GPUS=1 sizing)
+    # regardless of the actual NUM_GPUS, even if the FIRST leg was submitted
+    # with a correctly-scaled --mem/--cpus-per-task at the command line
+    # (confirmed directly: a NUM_GPUS=2 chain's first leg ran fine under a
+    # manually-passed --mem=240G, but the next self-chained leg -- which only
+    # inherited --gres=gpu:2, not --mem -- got Linux-OOM-killed on a
+    # DataLoader worker mid-checkpoint-save under the fallen-back 120G).
     next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" NUM_GPUS="$NUM_GPUS" MASTER_PORT="$MASTER_PORT" \
         sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 --gres=gpu:"$NUM_GPUS" \
+        --mem="$((NUM_GPUS * 120))G" --cpus-per-task="$((NUM_GPUS * 16))" \
         --job-name="$SLURM_JOB_NAME" \
         --export=ALL \
         --dependency=afterany:"$SLURM_JOB_ID" \
