@@ -240,6 +240,14 @@ def run(config: Config):
                 wandb.init(
                     project=config.training.wandb_project,
                     name=experiment_name,
+                    # Stable id + resume="allow" so a training run split across
+                    # many separately-submitted SLURM legs (e.g. self-chained
+                    # short legs racing a wall-clock timeout) continues logging
+                    # into the SAME wandb run instead of starting a fresh one
+                    # every leg -- without this, a long chained run fragments
+                    # into one short-lived wandb run per leg.
+                    id=experiment_name,
+                    resume="allow",
                     config=config_dict,
                     tags=[config.data.mode],
                 )

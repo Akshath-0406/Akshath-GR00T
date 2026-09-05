@@ -132,6 +132,22 @@ TUNE_LLM_FLAG="${TUNE_LLM_FLAG:---no-tune-llm}"
 TUNE_VISUAL_FLAG="${TUNE_VISUAL_FLAG:---no-tune-visual}"
 LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 
+# Off by default (matches this repo's original behavior -- no run so far has
+# ever produced a live wandb run, only a static wandb_config.json copy).
+# Override to --use-wandb to enable. Compute nodes have no internet access
+# (see prefetch note above), so WANDB_MODE=offline is forced unconditionally
+# below regardless of this flag -- wandb writes run data to local files under
+# $HOME/groot/wandb/ instead of trying (and hanging/failing) to reach
+# api.wandb.ai. Sync them from the LOGIN node once you have something to look
+# at: `wandb sync $HOME/groot/wandb --sync-all` (needs `wandb login` once on
+# the login node first). The wandb.init() call now also passes a stable
+# id=experiment_name + resume="allow" (see gr00t/experiment/experiment.py) so
+# every chained leg of a long run appends to the SAME run instead of starting
+# a new fragmented one each leg.
+USE_WANDB_FLAG="${USE_WANDB_FLAG:---no-use-wandb}"
+WANDB_PROJECT="${WANDB_PROJECT:-finetune-gr00t-n1d7}"
+export WANDB_MODE=offline
+
 MAX_STEPS="${MAX_STEPS:-2000}"
 # 0 disables milestone saving (default). Set > 0 (e.g. 5000) to additionally
 # copy every checkpoint whose step is a multiple of this value into
@@ -217,6 +233,8 @@ echo "GRADIENT_ACCUMULATION_STEPS: $GRADIENT_ACCUMULATION_STEPS"
 echo "TUNE_LLM_FLAG: $TUNE_LLM_FLAG"
 echo "TUNE_VISUAL_FLAG: $TUNE_VISUAL_FLAG"
 echo "LEARNING_RATE: $LEARNING_RATE"
+echo "USE_WANDB_FLAG: $USE_WANDB_FLAG"
+echo "WANDB_PROJECT: $WANDB_PROJECT"
 echo "------------------"
 
 # Workspace-backed output dir -- see WORKSPACE NOTE near the top of this file.
@@ -284,6 +302,8 @@ CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/
     "$TUNE_LLM_FLAG" \
     "$TUNE_VISUAL_FLAG" \
     --learning-rate "$LEARNING_RATE" \
+    "$USE_WANDB_FLAG" \
+    --wandb-project "$WANDB_PROJECT" \
     --output-dir "$OUTPUT_DIR" \
     --max-steps "$MAX_STEPS" \
     --save-steps "$SAVE_STEPS" \
@@ -333,7 +353,7 @@ if (( latest_step < MAX_STEPS )); then
     # the name the FIRST leg was submitted with, instead of falling back to
     # this script's #SBATCH --job-name default. Without this, `sacct
     # --name=<custom-name>` only ever finds the first leg of a chain.
-    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" \
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" \
         sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
         --job-name="$SLURM_JOB_NAME" \
         --export=ALL \
