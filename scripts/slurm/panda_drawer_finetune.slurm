@@ -15,6 +15,16 @@
 # GPUs on the one node SLURM allocates, so NUM_GPUS must not exceed that.
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=120G
+# Both sized for the single-GPU case (NUM_GPUS=1 below). For multi-GPU,
+# torchrun launches NUM_GPUS separate processes, each spawning its own
+# DATALOADER_NUM_WORKERS worker pool -- so CPU-side memory/worker pressure
+# scales with NUM_GPUS even though these two flat #SBATCH values don't
+# (observed directly: a NUM_GPUS=4 run got killed by the Linux OOM-killer on
+# system RAM, not a CUDA OOM, with these defaults still in place). Override
+# at the `sbatch` command line with the *-per-gpu variants instead of trying
+# to compute NUM_GPUS x 16 / NUM_GPUS x 120G by hand -- they scale
+# automatically with --gres=gpu:N:
+#   sbatch --gres=gpu:4 --mem-per-gpu=120G --cpus-per-gpu=16 --export=NUM_GPUS=4,...
 #SBATCH --time=20:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
