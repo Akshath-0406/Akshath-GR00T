@@ -3,6 +3,16 @@
 #SBATCH --account=ka
 #SBATCH --partition=gpu_h100
 #SBATCH --gres=gpu:1
+# --gres=gpu:1 is the default for the common single-GPU case. For multi-GPU
+# (NUM_GPUS>1 below, launched via torchrun), you MUST ALSO override this at
+# the `sbatch` command line to match -- e.g.
+# `sbatch --gres=gpu:4 --export=NUM_GPUS=4,... panda_drawer_finetune.slurm`.
+# This #SBATCH pragma only sets a default; it does not read NUM_GPUS (SLURM
+# pragmas can't reference shell variables computed inside the script), so the
+# two must be kept in sync manually. gpu_h100 nodes have 4 GPUs each
+# (confirmed via `scontrol show partition gpu_h100`: gres/gpu=48 over
+# TotalNodes=12) -- torchrun's single-node launch model needs all requested
+# GPUs on the one node SLURM allocates, so NUM_GPUS must not exceed that.
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=120G
 #SBATCH --time=20:00:00
@@ -148,6 +158,19 @@ USE_WANDB_FLAG="${USE_WANDB_FLAG:---no-use-wandb}"
 WANDB_PROJECT="${WANDB_PROJECT:-finetune-gr00t-n1d7}"
 export WANDB_MODE=offline
 
+# 1 (default) launches with plain `python`, pinned to GPU 0 -- unchanged from
+# this script's original behavior. >1 switches to `torchrun`, splitting
+# GLOBAL_BATCH_SIZE across GPUs (gr00t/experiment/experiment.py:
+# per_device_train_batch_size = global_batch_size // num_gpus), so e.g.
+# NUM_GPUS=4 with GLOBAL_BATCH_SIZE=32 gives each GPU the same per-device
+# batch of 8 as a single-GPU GLOBAL_BATCH_SIZE=8 run, while still reaching a
+# global/effective batch of 32 (before gradient accumulation). Must evenly
+# divide GLOBAL_BATCH_SIZE (launch_finetune.py asserts this and errors
+# otherwise). Remember to also pass --gres=gpu:$NUM_GPUS on the `sbatch`
+# command line -- see the note above #SBATCH --gres=gpu:1.
+NUM_GPUS="${NUM_GPUS:-1}"
+MASTER_PORT="${MASTER_PORT:-29500}"
+
 MAX_STEPS="${MAX_STEPS:-2000}"
 # 0 disables milestone saving (default). Set > 0 (e.g. 5000) to additionally
 # copy every checkpoint whose step is a multiple of this value into
@@ -235,6 +258,8 @@ echo "TUNE_VISUAL_FLAG: $TUNE_VISUAL_FLAG"
 echo "LEARNING_RATE: $LEARNING_RATE"
 echo "USE_WANDB_FLAG: $USE_WANDB_FLAG"
 echo "WANDB_PROJECT: $WANDB_PROJECT"
+echo "NUM_GPUS: $NUM_GPUS"
+echo "MASTER_PORT: $MASTER_PORT"
 echo "------------------"
 
 # Workspace-backed output dir -- see WORKSPACE NOTE near the top of this file.
@@ -292,27 +317,39 @@ set +e
 # single-observation inference (torch.stack shape mismatch across views)
 # without it. Must match between train and eval -- it's saved into the
 # checkpoint's processor_config.json and restored automatically at eval time.
-CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/launch_finetune.py \
-    --base-model-path "$BASE_MODEL_PATH" \
-    --dataset-path "$DATASET_PATH" \
-    --embodiment-tag "$EMBODIMENT_TAG" \
-    --modality-config-path "$MODALITY_CONFIG_PATH" \
-    --num-gpus 1 \
-    "$LETTER_BOX_TRANSFORM_FLAG" \
-    "$TUNE_LLM_FLAG" \
-    "$TUNE_VISUAL_FLAG" \
-    --learning-rate "$LEARNING_RATE" \
-    "$USE_WANDB_FLAG" \
-    --wandb-project "$WANDB_PROJECT" \
-    --output-dir "$OUTPUT_DIR" \
-    --max-steps "$MAX_STEPS" \
-    --save-steps "$SAVE_STEPS" \
-    --save-total-limit 5 \
-    --milestone-steps "$MILESTONE_STEPS" \
-    --global-batch-size "$GLOBAL_BATCH_SIZE" \
-    --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS" \
-    --dataloader-num-workers "$DATALOADER_NUM_WORKERS" \
+LAUNCH_ARGS=(
+    gr00t/experiment/launch_finetune.py
+    --base-model-path "$BASE_MODEL_PATH"
+    --dataset-path "$DATASET_PATH"
+    --embodiment-tag "$EMBODIMENT_TAG"
+    --modality-config-path "$MODALITY_CONFIG_PATH"
+    --num-gpus "$NUM_GPUS"
+    "$LETTER_BOX_TRANSFORM_FLAG"
+    "$TUNE_LLM_FLAG"
+    "$TUNE_VISUAL_FLAG"
+    --learning-rate "$LEARNING_RATE"
+    "$USE_WANDB_FLAG"
+    --wandb-project "$WANDB_PROJECT"
+    --output-dir "$OUTPUT_DIR"
+    --max-steps "$MAX_STEPS"
+    --save-steps "$SAVE_STEPS"
+    --save-total-limit 5
+    --milestone-steps "$MILESTONE_STEPS"
+    --global-batch-size "$GLOBAL_BATCH_SIZE"
+    --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS"
+    --dataloader-num-workers "$DATALOADER_NUM_WORKERS"
     "${RESUME_ARGS[@]}"
+)
+
+# NUM_GPUS=1 (default): plain python, pinned to GPU 0 -- unchanged original
+# behavior. NUM_GPUS>1: torchrun, one process per GPU on this single node
+# (see NUM_GPUS comment above for how GLOBAL_BATCH_SIZE splits across them).
+# Mirrors examples/finetune.sh's launcher-selection pattern.
+if [[ "$NUM_GPUS" == "1" ]]; then
+    CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" timeout "$TRAIN_TIMEOUT_SECONDS" python "${LAUNCH_ARGS[@]}"
+else
+    timeout "$TRAIN_TIMEOUT_SECONDS" torchrun --nproc_per_node="$NUM_GPUS" --master_port="$MASTER_PORT" "${LAUNCH_ARGS[@]}"
+fi
 train_exit=$?
 set -e
 
@@ -353,8 +390,8 @@ if (( latest_step < MAX_STEPS )); then
     # the name the FIRST leg was submitted with, instead of falling back to
     # this script's #SBATCH --job-name default. Without this, `sacct
     # --name=<custom-name>` only ever finds the first leg of a chain.
-    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" \
-        sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" NUM_GPUS="$NUM_GPUS" MASTER_PORT="$MASTER_PORT" \
+        sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 --gres=gpu:"$NUM_GPUS" \
         --job-name="$SLURM_JOB_NAME" \
         --export=ALL \
         --dependency=afterany:"$SLURM_JOB_ID" \
