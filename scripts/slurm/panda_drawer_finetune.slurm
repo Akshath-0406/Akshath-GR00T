@@ -21,10 +21,15 @@
 # scales with NUM_GPUS even though these two flat #SBATCH values don't
 # (observed directly: a NUM_GPUS=4 run got killed by the Linux OOM-killer on
 # system RAM, not a CUDA OOM, with these defaults still in place). Override
-# at the `sbatch` command line with the *-per-gpu variants instead of trying
-# to compute NUM_GPUS x 16 / NUM_GPUS x 120G by hand -- they scale
-# automatically with --gres=gpu:N:
-#   sbatch --gres=gpu:4 --mem-per-gpu=120G --cpus-per-gpu=16 --export=NUM_GPUS=4,...
+# at the `sbatch` command line using the SAME directive type as this file
+# (--mem=/--cpus-per-task=), computed as NUM_GPUS x 120G / NUM_GPUS x 16 --
+# NOT --mem-per-gpu/--cpus-per-gpu: SLURM treats --mem/--mem-per-cpu/
+# --mem-per-gpu (and similarly --cpus-per-task/--cpus-per-gpu) as mutually
+# exclusive regardless of whether one comes from this file's #SBATCH lines
+# and the other from the command line -- passing --mem-per-gpu here doesn't
+# override the file's --mem=120G, it fatals with "mutually exclusive"
+# (confirmed directly). e.g. for NUM_GPUS=2:
+#   sbatch --gres=gpu:2 --mem=240G --cpus-per-task=32 --export=NUM_GPUS=2,...
 #SBATCH --time=20:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
