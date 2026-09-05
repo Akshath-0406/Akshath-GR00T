@@ -119,8 +119,26 @@ BASE_MODEL_PATH="${BASE_MODEL_PATH:-nvidia/GR00T-N1.7-3B}"
 # python invocation below); a new dataset with uniform-aspect-ratio cameras
 # can turn it off with LETTER_BOX_TRANSFORM_FLAG=--no-letter-box-transform.
 LETTER_BOX_TRANSFORM_FLAG="${LETTER_BOX_TRANSFORM_FLAG:---letter-box-transform}"
+# Defaults reproduce this repo's original lightweight-finetune behavior
+# (backbone frozen, only the projector/action-head/vision-language-bridge
+# trainable -- see gr00t/configs/finetune_config.py's tune_llm/tune_visual
+# defaults). Override to --tune-llm/--tune-visual for a full-parameter
+# finetune of the whole model, including the pretrained VLM backbone. If you
+# do, also lower LEARNING_RATE below -- there is no separate/lower learning
+# rate for backbone parameters, so the default 1e-4 (tuned for the small
+# projector/action-head) risks damaging the pretrained backbone's features
+# rather than usefully adapting them.
+TUNE_LLM_FLAG="${TUNE_LLM_FLAG:---no-tune-llm}"
+TUNE_VISUAL_FLAG="${TUNE_VISUAL_FLAG:---no-tune-visual}"
+LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 
 MAX_STEPS="${MAX_STEPS:-2000}"
+# 0 disables milestone saving (default). Set > 0 (e.g. 5000) to additionally
+# copy every checkpoint whose step is a multiple of this value into
+# <OUTPUT_DIR>/milestones/checkpoint-<step>, kept indefinitely regardless of
+# save_total_limit -- lets you compare performance at each milestone without
+# it being rotated away by the regular SAVE_STEPS/save_total_limit cleanup.
+MILESTONE_STEPS="${MILESTONE_STEPS:-0}"
 # 50 balances I/O against progress-loss risk: at ~25GB/checkpoint this is
 # ~5x fewer bytes written to the workspace than the SAVE_STEPS=20 this project
 # used earlier (which contributed to a bwHPC high-I/O notice on $HOME before
@@ -193,8 +211,12 @@ echo "EMBODIMENT_TAG: $EMBODIMENT_TAG"
 echo "BASE_MODEL_PATH: $BASE_MODEL_PATH"
 echo "MAX_STEPS: $MAX_STEPS"
 echo "SAVE_STEPS: $SAVE_STEPS"
+echo "MILESTONE_STEPS: $MILESTONE_STEPS"
 echo "GLOBAL_BATCH_SIZE: $GLOBAL_BATCH_SIZE"
 echo "GRADIENT_ACCUMULATION_STEPS: $GRADIENT_ACCUMULATION_STEPS"
+echo "TUNE_LLM_FLAG: $TUNE_LLM_FLAG"
+echo "TUNE_VISUAL_FLAG: $TUNE_VISUAL_FLAG"
+echo "LEARNING_RATE: $LEARNING_RATE"
 echo "------------------"
 
 # Workspace-backed output dir -- see WORKSPACE NOTE near the top of this file.
@@ -259,10 +281,14 @@ CUDA_VISIBLE_DEVICES=0 timeout "$TRAIN_TIMEOUT_SECONDS" python gr00t/experiment/
     --modality-config-path "$MODALITY_CONFIG_PATH" \
     --num-gpus 1 \
     "$LETTER_BOX_TRANSFORM_FLAG" \
+    "$TUNE_LLM_FLAG" \
+    "$TUNE_VISUAL_FLAG" \
+    --learning-rate "$LEARNING_RATE" \
     --output-dir "$OUTPUT_DIR" \
     --max-steps "$MAX_STEPS" \
     --save-steps "$SAVE_STEPS" \
     --save-total-limit 5 \
+    --milestone-steps "$MILESTONE_STEPS" \
     --global-batch-size "$GLOBAL_BATCH_SIZE" \
     --gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS" \
     --dataloader-num-workers "$DATALOADER_NUM_WORKERS" \
@@ -307,7 +333,7 @@ if (( latest_step < MAX_STEPS )); then
     # the name the FIRST leg was submitted with, instead of falling back to
     # this script's #SBATCH --job-name default. Without this, `sacct
     # --name=<custom-name>` only ever finds the first leg of a chain.
-    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" \
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" \
         sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 \
         --job-name="$SLURM_JOB_NAME" \
         --export=ALL \

@@ -68,6 +68,12 @@ class TrainingConfig:
     save_steps: int = 1000
     save_total_limit: int = 5
 
+    milestone_steps: int = 0
+    """If > 0, additionally copy every checkpoint whose global_step is a
+    multiple of this value into <output_dir>/milestones/checkpoint-<step>,
+    independent of save_total_limit's rotation. 0 (default) disables this --
+    see _MilestoneCheckpointCallback in gr00t/experiment/trainer.py."""
+
     # Model saving
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks
     save_only_model: bool = False  # Skip optimizer/scheduler/RNG states — cannot resume training

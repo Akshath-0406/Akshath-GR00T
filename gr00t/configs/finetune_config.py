@@ -161,6 +161,14 @@ class FinetuneConfig:
     save_total_limit: int = 5
     """Maximum number of checkpoints to keep before older ones are deleted."""
 
+    milestone_steps: int = 0
+    """If > 0, additionally copy every checkpoint whose global_step is a
+    multiple of this value into <output_dir>/milestones/checkpoint-<step>,
+    independent of save_total_limit's rotation of the regular checkpoint-<step>
+    directories. Lets you keep e.g. every 5000th checkpoint around for the
+    whole run (to compare performance at each milestone) while the regular
+    checkpoints still rotate normally. 0 (default) disables this."""
+
     num_gpus: int = 1
     """Number of GPUs available for distributed or single-node training."""
 

@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 import queue
+import shutil
 import threading
 from typing import Any, Optional
 
@@ -69,6 +71,40 @@ class _ResyncStepIntervalsCallback(TrainerCallback):
         state.logging_steps = args.logging_steps
         if args.eval_steps is not None:
             state.eval_steps = args.eval_steps
+
+
+class _MilestoneCheckpointCallback(TrainerCallback):
+    """Preserves every ``args.milestone_steps``-th checkpoint indefinitely,
+    independent of ``save_total_limit``'s rotation of the regular
+    ``checkpoint-<step>`` directories.
+
+    Runs in ``on_save``, which fires once ``Trainer._save_checkpoint`` has
+    finished writing the just-saved step's checkpoint (and, per HF's own
+    ordering, after that same call's ``_rotate_checkpoints`` has already
+    deleted any now-stale older checkpoints). The just-saved checkpoint itself
+    is always the newest one on disk, so it is never a candidate for deletion
+    in its own save's rotation pass -- copying it here can't race a deletion
+    of the very thing being copied.
+
+    A no-op whenever ``args.milestone_steps`` is 0 (the default), so this is
+    always safe to add unconditionally.
+    """
+
+    def on_save(self, args, state, control, **kwargs):
+        milestone_steps = getattr(args, "milestone_steps", 0)
+        if not milestone_steps or state.global_step % milestone_steps != 0:
+            return
+        if not state.is_world_process_zero:
+            return
+        src = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+        if not src.exists():
+            return
+        dst = Path(args.output_dir) / "milestones" / f"checkpoint-{state.global_step}"
+        if dst.exists():
+            return
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Milestone step {state.global_step}: copying checkpoint to {dst}")
+        shutil.copytree(src, dst)
 
 
 class _BatchIterator:
@@ -189,6 +225,7 @@ class Gr00tTrainer(Trainer):
         self.multiprocessing_context = kwargs.pop("multiprocessing_context", "fork")
         super().__init__(*args, **kwargs)
         self.add_callback(_ResyncStepIntervalsCallback())
+        self.add_callback(_MilestoneCheckpointCallback())
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         # Hide epoch from logged metrics as it's misleading for Iterable datasets.
