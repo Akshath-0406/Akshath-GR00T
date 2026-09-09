@@ -309,6 +309,12 @@ def run(config: Config):
         remove_unused_columns=config.training.remove_unused_columns,
         ignore_data_skip=True,
     )
+    # Not a real TrainingArguments field -- transformers' dataclass silently
+    # drops anything not passed as a constructor kwarg, so this has to be set
+    # as a plain attribute after construction. _MilestoneCheckpointCallback
+    # reads it via getattr(args, "milestone_steps", 0) since callbacks only
+    # ever see this HF-native args object, not config.training directly.
+    training_args.milestone_steps = config.training.milestone_steps
 
     # Create trainer
     trainer = Gr00tTrainer(
