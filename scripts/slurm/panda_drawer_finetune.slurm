@@ -164,11 +164,15 @@ LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 # below regardless of this flag -- wandb writes run data to local files under
 # $HOME/groot/wandb/ instead of trying (and hanging/failing) to reach
 # api.wandb.ai. Sync them from the LOGIN node once you have something to look
-# at: `wandb sync $HOME/groot/wandb --sync-all` (needs `wandb login` once on
-# the login node first). The wandb.init() call now also passes a stable
-# id=experiment_name + resume="allow" (see gr00t/experiment/experiment.py) so
-# every chained leg of a long run appends to the SAME run instead of starting
-# a new fragmented one each leg.
+# at (needs `wandb login` once on the login node first). The wandb.init() call
+# now also passes a stable id=experiment_name + resume="allow" (see
+# gr00t/experiment/experiment.py) so every chained leg of a long run appends
+# to the SAME run instead of starting a new fragmented one each leg -- but
+# that also means `wandb sync --sync-all` re-uploads each resumed run's full
+# history every time it's invoked (wandb's synced-marker doesn't reliably
+# stick for resumed offline runs). Use `scripts/wandb_sync_new.sh` instead --
+# it tracks which run directories it has already synced in a manifest file so
+# repeat invocations only upload genuinely new runs.
 USE_WANDB_FLAG="${USE_WANDB_FLAG:---no-use-wandb}"
 WANDB_PROJECT="${WANDB_PROJECT:-finetune-gr00t-n1d7}"
 export WANDB_MODE=offline
