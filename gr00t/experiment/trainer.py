@@ -225,7 +225,12 @@ class Gr00tTrainer(Trainer):
         self.multiprocessing_context = kwargs.pop("multiprocessing_context", "fork")
         super().__init__(*args, **kwargs)
         self.add_callback(_ResyncStepIntervalsCallback())
-        self.add_callback(_MilestoneCheckpointCallback())
+        # _MilestoneCheckpointCallback is intentionally NOT added here. It must run
+        # after CheckpointFormatCallback (added later, in experiment.py) so that the
+        # milestone snapshot includes the processor/experiment_cfg/wandb_config files
+        # CheckpointFormatCallback copies into checkpoint-<step> on the same on_save
+        # event -- HF's CallbackHandler fires callbacks in registration order, so
+        # adding it here would snapshot the checkpoint before those files land.
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         # Hide epoch from logged metrics as it's misleading for Iterable datasets.

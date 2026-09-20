@@ -31,7 +31,7 @@ from gr00t.configs.base_config import Config
 from gr00t.configs.training.training_config import check_resume_compatibility
 
 # Use custom trainer that profiles data loading & forward times
-from gr00t.experiment.trainer import Gr00tTrainer, ProfCallback
+from gr00t.experiment.trainer import Gr00tTrainer, ProfCallback, _MilestoneCheckpointCallback
 from gr00t.experiment.utils import BestMetricCheckpointCallback, CheckpointFormatCallback
 from gr00t.model import MODEL_REGISTRY
 from gr00t.utils.dist_utils import run_on_rank0, run_or_wait_on_rank0
@@ -333,6 +333,9 @@ def run(config: Config):
             processor_dir=processor_dir,
         )
     )
+    # Must be added after CheckpointFormatCallback -- see the comment in
+    # Gr00tTrainer.__init__ for why registration order matters here.
+    trainer.add_callback(_MilestoneCheckpointCallback())
 
     if config.training.save_best_eval_metric_name != "":
         trainer.add_callback(
