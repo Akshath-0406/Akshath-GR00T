@@ -19,6 +19,8 @@ import json
 import logging
 import os
 from pathlib import Path
+import signal
+import sys
 import warnings
 
 from omegaconf import OmegaConf
@@ -227,6 +229,26 @@ def run(config: Config):
         config,
         experiment_name,
     )
+
+    # panda_drawer_finetune.slurm wraps this process in `timeout
+    # $TRAIN_TIMEOUT_SECONDS`, which SIGTERMs it once a chained leg's
+    # wall-clock budget is used up -- the SLURM script's own comments call
+    # this "expected" (exit code 124, triggers resubmitting the next leg).
+    # Without an explicit wandb.finish() on that path, the offline run's
+    # local .wandb file never gets a proper close-out record, and syncing it
+    # later (scripts/wandb_sync_new.sh) can succeed without the data actually
+    # merging into the resumed run on the dashboard -- this is a documented
+    # wandb limitation for resumed offline runs, not a bug in the sync script.
+    # `timeout` (without --preserve-status, which this script doesn't pass)
+    # reports 124 based on whether it had to send the signal, not on this
+    # process's own exit code, so exiting 0 here doesn't break the chaining
+    # check in panda_drawer_finetune.slurm.
+    def _finish_wandb_on_sigterm(signum, frame):
+        if wandb.run is not None:
+            wandb.finish()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _finish_wandb_on_sigterm)
 
     # wandb.init does network I/O; wrap so a rank-0 failure can't strand peers.
     if config.training.use_wandb:
