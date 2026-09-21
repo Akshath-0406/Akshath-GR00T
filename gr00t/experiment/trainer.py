@@ -90,6 +90,16 @@ class _MilestoneCheckpointCallback(TrainerCallback):
     always safe to add unconditionally.
     """
 
+    # Small "core" HF files a checkpoint needs to be loadable at all --
+    # config.json for AutoConfig/AutoModel, the other two for resuming
+    # training. Under DeepSpeed, the large weight shards and these small
+    # files don't necessarily land on disk atomically together, so on_save
+    # firing doesn't guarantee all of them are flushed yet (observed
+    # directly: a milestone missing config.json/trainer_state.json/
+    # training_args.bin while its live, non-milestone checkpoint later had
+    # all three once fully written).
+    _REQUIRED_CORE_FILES = ("config.json", "trainer_state.json", "training_args.bin")
+
     def on_save(self, args, state, control, **kwargs):
         milestone_steps = getattr(args, "milestone_steps", 0)
         if not milestone_steps or state.global_step % milestone_steps != 0:
@@ -102,6 +112,16 @@ class _MilestoneCheckpointCallback(TrainerCallback):
         dst = Path(args.output_dir) / "milestones" / f"checkpoint-{state.global_step}"
         if dst.exists():
             return
+
+        missing = [f for f in self._REQUIRED_CORE_FILES if not (src / f).exists()]
+        if missing:
+            print(
+                f"Milestone step {state.global_step}: {src} is missing {missing} "
+                "(likely still being written) -- skipping this milestone rather "
+                "than snapshotting an incomplete checkpoint."
+            )
+            return
+
         dst.parent.mkdir(parents=True, exist_ok=True)
         print(f"Milestone step {state.global_step}: copying checkpoint to {dst}")
         shutil.copytree(src, dst)
