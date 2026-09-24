@@ -136,6 +136,19 @@ export LD_LIBRARY_PATH="$HOME/.conda/envs/ffmpeg-libs/lib:${LD_LIBRARY_PATH:-}"
 DATASET_PATH="${DATASET_PATH:-examples/panda_drawer/panda_drawer_many_ee_fullres}"
 MODALITY_CONFIG_PATH="${MODALITY_CONFIG_PATH:-examples/panda_drawer/panda_drawer_config.py}"
 EMBODIMENT_TAG="${EMBODIMENT_TAG:-NEW_EMBODIMENT}"
+# Only relevant when DATASET_PATH lists multiple (colon-separated) datasets.
+# Unset (default): each dataset's sampling weight is proportional to its own
+# size (gr00t/data/dataset/factory.py), so a bigger dataset gets sampled more
+# often. Set to a number to switch to weight = len(dataset)^alpha instead --
+# 0 makes every dataset's weight equal (1:1:...:1) regardless of size; 1
+# reproduces the size-proportional default; values in between up-weight
+# smaller datasets without making them fully equal. Left unset by default so
+# every other job's existing behavior is unchanged.
+DS_WEIGHTS_ALPHA="${DS_WEIGHTS_ALPHA:-}"
+DS_WEIGHTS_ALPHA_ARGS=()
+if [[ -n "$DS_WEIGHTS_ALPHA" ]]; then
+    DS_WEIGHTS_ALPHA_ARGS=(--ds-weights-alpha "$DS_WEIGHTS_ALPHA")
+fi
 # nvidia/GR00T-N1.7-3B for an unrelated dataset/embodiment, or a local
 # checkpoint dir (e.g. $(ws_find groot_ckpts)/outputs/panda_drawer/checkpoint-2000)
 # to continue from an already-adapted checkpoint for the same embodiment.
@@ -342,6 +355,7 @@ LAUNCH_ARGS=(
     --dataset-path "$DATASET_PATH"
     --embodiment-tag "$EMBODIMENT_TAG"
     --modality-config-path "$MODALITY_CONFIG_PATH"
+    "${DS_WEIGHTS_ALPHA_ARGS[@]}"
     --num-gpus "$NUM_GPUS"
     "$LETTER_BOX_TRANSFORM_FLAG"
     "$TUNE_LLM_FLAG"
@@ -418,7 +432,7 @@ if (( latest_step < MAX_STEPS )); then
     # manually-passed --mem=240G, but the next self-chained leg -- which only
     # inherited --gres=gpu:2, not --mem -- got Linux-OOM-killed on a
     # DataLoader worker mid-checkpoint-save under the fallen-back 120G).
-    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" NUM_GPUS="$NUM_GPUS" MASTER_PORT="$MASTER_PORT" \
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" NUM_GPUS="$NUM_GPUS" MASTER_PORT="$MASTER_PORT" DS_WEIGHTS_ALPHA="$DS_WEIGHTS_ALPHA" \
         sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 --gres=gpu:"$NUM_GPUS" \
         --mem="$((NUM_GPUS * 120))G" --cpus-per-task="$((NUM_GPUS * 16))" \
         --job-name="$SLURM_JOB_NAME" \
