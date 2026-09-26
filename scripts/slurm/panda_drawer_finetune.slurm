@@ -249,6 +249,18 @@ TRAIN_TIMEOUT_SECONDS="${TRAIN_TIMEOUT_SECONDS:-71000}"
 # smoke tests/eval (lighter, already confirmed to run there), just not for the
 # real chained run.
 CHAIN_PARTITIONS="${CHAIN_PARTITIONS:-gpu_h100_short,gpu_h100,gpu_a100_il,gpu_h100_il}"
+# --time for each chained leg's own `sbatch` resubmission (see below) --
+# independent of the --time given on the ORIGINAL `sbatch` command line,
+# which only applies to that first leg. Without this, every chained leg
+# silently reset to a hardcoded 00:28:00 regardless of what --time/
+# TRAIN_TIMEOUT_SECONDS the run was actually configured with (observed
+# directly: a run submitted with --time=24:00:00 and TRAIN_TIMEOUT_SECONDS
+# =85800 had its first leg run for ~24h as intended, then its self-chained
+# second leg get resubmitted with --time=00:28:00 anyway). Override this
+# together with TRAIN_TIMEOUT_SECONDS/--time for a long-running chain --
+# TRAIN_TIMEOUT_SECONDS must still leave headroom under CHAIN_TIME for this
+# script to reclaim control and resubmit before the hard kill.
+CHAIN_TIME="${CHAIN_TIME:-00:28:00}"
 
 
 # Needed for CUDA_HOME: accelerate's unwrap_model() unconditionally imports
@@ -432,8 +444,8 @@ if (( latest_step < MAX_STEPS )); then
     # manually-passed --mem=240G, but the next self-chained leg -- which only
     # inherited --gres=gpu:2, not --mem -- got Linux-OOM-killed on a
     # DataLoader worker mid-checkpoint-save under the fallen-back 120G).
-    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" NUM_GPUS="$NUM_GPUS" MASTER_PORT="$MASTER_PORT" DS_WEIGHTS_ALPHA="$DS_WEIGHTS_ALPHA" \
-        sbatch --partition="$CHAIN_PARTITIONS" --time=00:28:00 --gres=gpu:"$NUM_GPUS" \
+    next_job_output="$(MAX_STEPS="$MAX_STEPS" SAVE_STEPS="$SAVE_STEPS" MILESTONE_STEPS="$MILESTONE_STEPS" GLOBAL_BATCH_SIZE="$GLOBAL_BATCH_SIZE" GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" TRAIN_TIMEOUT_SECONDS="$TRAIN_TIMEOUT_SECONDS" DATALOADER_NUM_WORKERS="$DATALOADER_NUM_WORKERS" CHAIN_PARTITIONS="$CHAIN_PARTITIONS" CHAIN_TIME="$CHAIN_TIME" OUTPUT_DIR="$OUTPUT_DIR" DATASET_PATH="$DATASET_PATH" MODALITY_CONFIG_PATH="$MODALITY_CONFIG_PATH" EMBODIMENT_TAG="$EMBODIMENT_TAG" BASE_MODEL_PATH="$BASE_MODEL_PATH" LETTER_BOX_TRANSFORM_FLAG="$LETTER_BOX_TRANSFORM_FLAG" TUNE_LLM_FLAG="$TUNE_LLM_FLAG" TUNE_VISUAL_FLAG="$TUNE_VISUAL_FLAG" LEARNING_RATE="$LEARNING_RATE" USE_WANDB_FLAG="$USE_WANDB_FLAG" WANDB_PROJECT="$WANDB_PROJECT" NUM_GPUS="$NUM_GPUS" MASTER_PORT="$MASTER_PORT" DS_WEIGHTS_ALPHA="$DS_WEIGHTS_ALPHA" \
+        sbatch --partition="$CHAIN_PARTITIONS" --time="$CHAIN_TIME" --gres=gpu:"$NUM_GPUS" \
         --mem="$((NUM_GPUS * 120))G" --cpus-per-task="$((NUM_GPUS * 16))" \
         --job-name="$SLURM_JOB_NAME" \
         --export=ALL \
